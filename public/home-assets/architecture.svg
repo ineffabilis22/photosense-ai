@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 1200" role="img" aria-label="暗调建筑摄影样片">
+  <defs>
+    <filter id="grain"><feTurbulence type="fractalNoise" baseFrequency=".65" numOctaves="3"/><feComponentTransfer><feFuncA type="table" tableValues="0 .14"/></feComponentTransfer></filter>
+  </defs>
+  <rect width="900" height="1200" fill="#121211"/>
+  <g fill="#282720">
+    <rect x="120" y="0" width="250" height="1200"/>
+    <rect x="420" y="130" width="350" height="1070"/>
+  </g>
+  <g fill="#caae62" opacity=".58">
+    <rect x="178" y="118" width="54" height="150"/><rect x="262" y="118" width="54" height="150"/>
+    <rect x="178" y="338" width="54" height="150"/><rect x="262" y="338" width="54" height="150"/>
+    <rect x="492" y="230" width="62" height="170"/><rect x="596" y="230" width="62" height="170"/>
+    <rect x="492" y="478" width="62" height="170"/><rect x="596" y="478" width="62" height="170"/>
+  </g>
+  <path d="M118 0v1200M370 0v1200M420 130v1070M770 130v1070" stroke="#f2eadc" opacity=".18" stroke-width="3"/>
+  <rect width="900" height="1200" filter="url(#grain)"/>
+</svg>

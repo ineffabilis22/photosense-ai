@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 1200" role="img" aria-label="暗调街头摄影样片">
+  <defs>
+    <filter id="grain"><feTurbulence type="fractalNoise" baseFrequency=".9" numOctaves="3" stitchTiles="stitch"/><feColorMatrix type="saturate" values="0"/><feComponentTransfer><feFuncA type="table" tableValues="0 .18"/></feComponentTransfer></filter>
+    <linearGradient id="g" x1="0" x2="1" y1="0" y2="1"><stop stop-color="#0f1110"/><stop offset=".48" stop-color="#2b2924"/><stop offset="1" stop-color="#c9a85b"/></linearGradient>
+  </defs>
+  <rect width="900" height="1200" fill="url(#g)"/>
+  <rect y="650" width="900" height="550" fill="#11110f"/>
+  <rect x="72" y="120" width="150" height="820" fill="#181816"/>
+  <rect x="278" y="82" width="64" height="820" fill="#d0b56f" opacity=".62"/>
+  <rect x="390" y="210" width="280" height="600" fill="#25231f"/>
+  <path d="M0 690h900" stroke="#e7d39a" stroke-width="7" opacity=".55"/>
+  <g fill="#090908">
+    <ellipse cx="535" cy="700" rx="58" ry="88"/>
+    <circle cx="535" cy="580" r="42"/>
+    <rect x="506" y="755" width="58" height="190"/>
+  </g>
+  <g opacity=".22" stroke="#f2eadc" stroke-width="3">
+    <path d="M0 252h900M0 502h900M0 928h900"/>
+    <path d="M226 0v1200M682 0v1200"/>
+  </g>
+  <rect width="900" height="1200" filter="url(#grain)"/>
+</svg>

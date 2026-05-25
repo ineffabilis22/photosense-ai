@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 360" role="img" aria-hidden="true">
+  <defs>
+    <filter id="grain">
+      <feTurbulence type="fractalNoise" baseFrequency="0.85" numOctaves="2" stitchTiles="stitch"/>
+      <feColorMatrix type="saturate" values="0"/>
+      <feComponentTransfer><feFuncA type="table" tableValues="0 0.16"/></feComponentTransfer>
+      <feBlend mode="overlay" in2="SourceGraphic"/>
+    </filter>
+  </defs>
+  
+  <rect width="960" height="360" fill="#151512"/>
+  <rect x="48" y="58" width="246" height="96" fill="#24241f" stroke="#514d43"/>
+  <rect x="48" y="206" width="246" height="96" fill="#24241f" stroke="#514d43"/>
+  <rect x="356" y="58" width="246" height="96" fill="#24241f" stroke="#514d43"/>
+  <rect x="356" y="206" width="246" height="96" fill="#24241f" stroke="#514d43"/>
+  <rect x="664" y="132" width="246" height="96" fill="#24241f" stroke="#514d43"/>
+  <path d="M294 106h62M294 254h62M602 106l62 74M602 254l62-74" stroke="#d9c36a" stroke-width="3" opacity=".78"/>
+  <circle cx="171" cy="106" r="28" fill="#d9c36a" opacity=".88"/>
+  <path d="M92 254h158" stroke="#d9c36a" stroke-width="10" opacity=".68"/>
+  <path d="M420 108h118M420 134h82" stroke="#d9c36a" stroke-width="9" opacity=".58"/>
+  <path d="M426 232l54 36 72-68" fill="none" stroke="#d9c36a" stroke-width="10" opacity=".6"/>
+  <rect x="724" y="168" width="126" height="24" fill="#d9c36a" opacity=".78"/>
+  <rect x="706" y="144" width="40" height="72" fill="#5b5547"/>
+  <rect x="834" y="144" width="40" height="72" fill="#5b5547"/>
+  <g filter="url(#grain)"><rect width="960" height="360" fill="transparent"/></g>
+
+</svg>

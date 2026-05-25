@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1000" role="img" aria-label="暗调静物摄影样片">
+  <defs>
+    <filter id="grain"><feTurbulence type="fractalNoise" baseFrequency=".8" numOctaves="3"/><feComponentTransfer><feFuncA type="table" tableValues="0 .15"/></feComponentTransfer></filter>
+    <radialGradient id="light" cx=".38" cy=".28" r=".64"><stop stop-color="#6b5b3c"/><stop offset=".52" stop-color="#24221e"/><stop offset="1" stop-color="#11110f"/></radialGradient>
+  </defs>
+  <rect width="1000" height="1000" fill="url(#light)"/>
+  <ellipse cx="500" cy="742" rx="360" ry="82" fill="#0d0d0c" opacity=".72"/>
+  <circle cx="392" cy="540" r="140" fill="#bca267"/>
+  <circle cx="612" cy="520" r="110" fill="#5f5746"/>
+  <rect x="210" y="684" width="580" height="26" fill="#d0b56f" opacity=".5"/>
+  <path d="M250 360c180-92 404-94 548 0" stroke="#f2eadc" stroke-width="4" opacity=".12"/>
+  <rect width="1000" height="1000" filter="url(#grain)"/>
+</svg>

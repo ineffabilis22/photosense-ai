@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 800" role="img" aria-label="暗调风景摄影样片">
+  <defs>
+    <filter id="grain"><feTurbulence type="fractalNoise" baseFrequency=".85" numOctaves="3"/><feComponentTransfer><feFuncA type="table" tableValues="0 .15"/></feComponentTransfer></filter>
+    <linearGradient id="sky" x1="0" x2="0" y1="0" y2="1"><stop stop-color="#29383b"/><stop offset=".58" stop-color="#151716"/><stop offset="1" stop-color="#0f100f"/></linearGradient>
+  </defs>
+  <rect width="1200" height="800" fill="url(#sky)"/>
+  <circle cx="922" cy="170" r="72" fill="#f3c437" opacity=".52"/>
+  <path d="M0 520 210 330l170 122 180-210 228 218 155-118 257 178v280H0z" fill="#20231f"/>
+  <path d="M0 590c170-56 304-70 470-28s315 42 730-36v274H0z" fill="#11110f"/>
+  <path d="M80 620c270 20 512 18 1040-58" stroke="#d9c076" stroke-width="6" opacity=".38"/>
+  <rect width="1200" height="800" filter="url(#grain)"/>
+</svg>

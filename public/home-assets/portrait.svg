@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 1200" role="img" aria-label="暗调人像摄影样片">
+  <defs>
+    <filter id="grain"><feTurbulence type="fractalNoise" baseFrequency=".75" numOctaves="3"/><feComponentTransfer><feFuncA type="table" tableValues="0 .16"/></feComponentTransfer></filter>
+    <radialGradient id="skin" cx=".52" cy=".34" r=".28"><stop stop-color="#c8a878"/><stop offset=".56" stop-color="#6b5941"/><stop offset="1" stop-color="#191817"/></radialGradient>
+  </defs>
+  <rect width="900" height="1200" fill="#151513"/>
+  <rect x="80" y="70" width="740" height="1060" fill="#24221e"/>
+  <circle cx="460" cy="385" r="165" fill="url(#skin)"/>
+  <path d="M280 610c86-86 274-88 366 0 72 70 108 222 122 396H166c10-180 42-322 114-396z" fill="#11110f"/>
+  <path d="M242 180c172-82 404-72 532 22" stroke="#f3c437" stroke-width="8" opacity=".42"/>
+  <rect x="128" y="118" width="644" height="942" fill="none" stroke="#f2eadc" stroke-width="3" opacity=".16"/>
+  <rect width="900" height="1200" filter="url(#grain)"/>
+</svg>
