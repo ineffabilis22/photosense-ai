@@ -47,12 +47,14 @@ const OPENAI_RELAY_MODEL = process.env.OPENAI_RELAY_MODEL?.trim() || 'gpt-5.4';
 const MAX_BODY_SIZE = 15 * 1024 * 1024;
 const PROVIDER_TIMEOUT_MS = Number(process.env.PROVIDER_TIMEOUT_MS || 45_000);
 const OPENAI_RELAY_TIMEOUT_MS = Number(process.env.OPENAI_RELAY_TIMEOUT_MS || 45_000);
-const OPENAI_RELAY_MAX_TOKENS = Number(process.env.OPENAI_RELAY_MAX_TOKENS || 1200);
+const OPENAI_RELAY_MAX_TOKENS = Number(process.env.OPENAI_RELAY_MAX_TOKENS || 2500);
 const OPENAI_RELAY_TEMPERATURE = Number(process.env.OPENAI_RELAY_TEMPERATURE || 0.35);
 
 const scoreNames = ['构图', '光线', '色彩', '叙事', '技术完成度'];
 const EXPORTS_DIR = path.join(process.cwd(), 'exports');
 const HISTORY_EXPORT_PATH = path.join(EXPORTS_DIR, 'photosense_reports_history.json');
+const DEBUG_AI_RESPONSE_LATEST_PATH = path.join(EXPORTS_DIR, 'debug_ai_response_latest.txt');
+const DEBUG_AI_OUTPUT_LATEST_PATH = path.join(EXPORTS_DIR, 'debug_ai_output_latest.txt');
 const DIST_DIR = path.join(process.cwd(), 'dist');
 const INDEX_HTML_PATH = path.join(DIST_DIR, 'index.html');
 const STATIC_MIME_TYPES = {
@@ -366,21 +368,176 @@ async function fetchWithTimeout(url, options, timeoutMs = PROVIDER_TIMEOUT_MS) {
   }
 }
 
+function sanitizeJsonText(text) {
+  return String(text ?? '')
+    .replace(/^\uFEFF/, '')
+    .trim()
+    .replace(/^```(?:json|javascript|js)?\s*/i, '')
+    .replace(/\s*```$/i, '')
+    .trim();
+}
+
+function removeTrailingCommas(jsonText) {
+  return jsonText.replace(/,\s*([}\]])/g, '$1');
+}
+
+function tryParseJsonCandidate(candidate) {
+  const attempts = [
+    candidate,
+    removeTrailingCommas(candidate),
+    candidate.replace(/[“”]/g, '"').replace(/[‘’]/g, "'"),
+    removeTrailingCommas(candidate.replace(/[“”]/g, '"').replace(/[‘’]/g, "'")),
+  ];
+
+  let lastError;
+
+  for (const attempt of attempts) {
+    try {
+      return JSON.parse(attempt);
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  throw lastError;
+}
+
+function findBalancedJsonObjects(text) {
+  const candidates = [];
+  let startIndex = -1;
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index];
+
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (char === '\\') {
+        escaped = true;
+      } else if (char === '"') {
+        inString = false;
+      }
+
+      continue;
+    }
+
+    if (char === '"') {
+      inString = true;
+      continue;
+    }
+
+    if (char === '{') {
+      if (depth === 0) {
+        startIndex = index;
+      }
+
+      depth += 1;
+      continue;
+    }
+
+    if (char === '}') {
+      if (depth > 0) {
+        depth -= 1;
+
+        if (depth === 0 && startIndex >= 0) {
+          candidates.push(text.slice(startIndex, index + 1));
+          startIndex = -1;
+        }
+      }
+    }
+  }
+
+  return candidates;
+}
+
+async function saveAiDebugFile(filePath, content) {
+  try {
+    await fs.mkdir(EXPORTS_DIR, { recursive: true });
+    await fs.writeFile(filePath, content, 'utf8');
+  } catch (error) {
+    console.warn('[PhotoSense AI] failed to save debug file:', error?.message || error);
+  }
+}
+
+async function saveAiDebugSnapshot({ responseText = '', outputText = '', error = null, label = 'openai-relay' }) {
+  const timestamp = new Date().toISOString();
+  const errorText = error ? `${error?.name || 'Error'}: ${error?.message || String(error)}` : 'none';
+  const responseSnapshotPath = path.join(EXPORTS_DIR, `debug_ai_response_${Date.now()}.txt`);
+  const outputSnapshotPath = path.join(EXPORTS_DIR, `debug_ai_output_${Date.now()}.txt`);
+  const responseContent = [
+    `timestamp=${timestamp}`,
+    `label=${label}`,
+    `error=${errorText}`,
+    '',
+    '----- RAW PROVIDER RESPONSE -----',
+    responseText || '',
+  ].join('\n');
+  const outputContent = [
+    `timestamp=${timestamp}`,
+    `label=${label}`,
+    `error=${errorText}`,
+    '',
+    '----- EXTRACTED MODEL OUTPUT -----',
+    outputText || '',
+  ].join('\n');
+
+  await saveAiDebugFile(DEBUG_AI_RESPONSE_LATEST_PATH, responseContent);
+  await saveAiDebugFile(DEBUG_AI_OUTPUT_LATEST_PATH, outputContent);
+  await saveAiDebugFile(responseSnapshotPath, responseContent);
+  await saveAiDebugFile(outputSnapshotPath, outputContent);
+
+  console.error('[PhotoSense AI] debug response saved:', path.relative(process.cwd(), DEBUG_AI_RESPONSE_LATEST_PATH).replace(/\\/g, '/'));
+  console.error('[PhotoSense AI] debug output saved:', path.relative(process.cwd(), DEBUG_AI_OUTPUT_LATEST_PATH).replace(/\\/g, '/'));
+}
+
+function getJsonParsePreview(text) {
+  const normalized = String(text ?? '');
+  const head = normalized.slice(0, 1800);
+  const tail = normalized.length > 1800 ? normalized.slice(-900) : '';
+  return tail ? `${head}\n\n----- OUTPUT TAIL -----\n${tail}` : head;
+}
+
 function extractJsonFromText(text) {
   if (text && typeof text === 'object') {
     return text;
   }
 
-  const cleanedText = text
-    .trim()
-    .replace(/^```json\s*/i, '')
-    .replace(/^```\s*/i, '')
-    .replace(/\s*```$/i, '')
-    .trim();
+  const cleanedText = sanitizeJsonText(text);
+
+  if (!cleanedText) {
+    throw new Error('AI 返回内容为空，无法解析报告 JSON。');
+  }
 
   try {
-    return JSON.parse(cleanedText);
-  } catch {
+    return tryParseJsonCandidate(cleanedText);
+  } catch (directError) {
+    const fencedMatch = cleanedText.match(/```(?:json)?\s*([\s\S]*?)```/i);
+
+    if (fencedMatch?.[1]) {
+      try {
+        return tryParseJsonCandidate(fencedMatch[1].trim());
+      } catch {
+        // Continue to balanced object extraction below.
+      }
+    }
+
+    const candidates = findBalancedJsonObjects(cleanedText);
+
+    for (const candidate of candidates) {
+      try {
+        const parsed = tryParseJsonCandidate(candidate);
+
+        if (parsed && typeof parsed === 'object') {
+          return parsed;
+        }
+      } catch {
+        // Keep looking for another balanced object.
+      }
+    }
+
     const firstBrace = cleanedText.indexOf('{');
     const lastBrace = cleanedText.lastIndexOf('}');
 
@@ -388,14 +545,14 @@ function extractJsonFromText(text) {
       const jsonCandidate = cleanedText.slice(firstBrace, lastBrace + 1);
 
       try {
-        return JSON.parse(jsonCandidate);
-      } catch (error) {
-        console.error('[PhotoSense AI] JSON parse failed after extracting braces. Preview:', cleanedText.slice(0, 1500));
-        throw new Error('AI 返回内容中未找到可解析的报告 JSON。');
+        return tryParseJsonCandidate(jsonCandidate);
+      } catch (braceError) {
+        console.error('[PhotoSense AI] JSON parse failed after extracting braces:', braceError?.message || braceError);
       }
     }
 
-    console.error('[PhotoSense AI] JSON parse failed. Preview:', cleanedText.slice(0, 1500));
+    console.error('[PhotoSense AI] JSON parse failed:', directError?.message || directError);
+    console.error('[PhotoSense AI] JSON parse failed preview:', getJsonParsePreview(cleanedText));
     throw new Error('AI 返回内容中未找到可解析的报告 JSON。');
   }
 }
@@ -862,6 +1019,14 @@ function createReportPrompt({ medium = '数码摄影', genre = '街头摄影', s
 
 题材速查：街头看瞬间/人物姿态/环境关系；人像看表情眼神/肤色/背景分离；风景看光线时机/空间层次/地方感；建筑看透视/线条/结构节奏；静物看物件关系/材质/阴影；旅行看地方感/人的痕迹/叙事。
 
+输出格式硬性要求：
+- 只返回一个合法 JSON 对象，不能有 Markdown、不能有 ```json、不能有 JSON 外说明。
+- 所有 key 必须使用英文双引号。
+- 所有字符串必须是单行中文字符串，不能包含真实换行符。
+- 不要输出注释、列表符号、解释段落或第二个 JSON。
+- 字段必须齐全；如果不确定，也要根据照片可见内容给出保守判断。
+- 控制文本长度，避免超过输出上限。
+
 必须返回这个 JSON 结构，字段齐全，所有字符串用中文：
 {
   "overall": "总体印象，1句",
@@ -1071,16 +1236,38 @@ async function createOpenAiRelayReport({ imageDataUrl, medium, genre, skillLevel
 
   console.log('[PhotoSense AI] OpenAI relay response received');
 
+  let relayDataForDebug = null;
+  try {
+    relayDataForDebug = JSON.parse(responseText);
+    const finishReason = relayDataForDebug?.choices?.[0]?.finish_reason || relayDataForDebug?.finish_reason || relayDataForDebug?.data?.choices?.[0]?.finish_reason;
+    if (finishReason) {
+      console.log('[PhotoSense AI] OpenAI relay finish_reason:', finishReason);
+    }
+    if (relayDataForDebug?.usage) {
+      console.log('[PhotoSense AI] OpenAI relay usage:', JSON.stringify(relayDataForDebug.usage));
+    }
+  } catch {
+    console.warn('[PhotoSense AI] OpenAI relay response is not directly parseable JSON; trying text extraction.');
+  }
+
   const outputText = parseOpenAiRelayResponseText(responseText);
+  console.log('[PhotoSense AI] OpenAI relay raw response length:', responseText.length);
+  console.log('[PhotoSense AI] OpenAI relay extracted output length:', outputText.length);
 
   if (!outputText) {
+    await saveAiDebugSnapshot({ responseText, outputText, label: 'openai-relay-empty-output' });
     throw new Error('OpenAI-compatible relay API 没有返回可解析的报告文本。');
   }
 
   console.log('[PhotoSense AI] JSON parse starts');
 
-  const parsedReport = extractJsonFromText(outputText);
-  return normalizeReport(parsedReport, { genre, skillLevel, medium });
+  try {
+    const parsedReport = extractJsonFromText(outputText);
+    return normalizeReport(parsedReport, { genre, skillLevel, medium });
+  } catch (error) {
+    await saveAiDebugSnapshot({ responseText, outputText, error, label: 'openai-relay-json-parse-failed' });
+    throw error;
+  }
 }
 
 async function createAnthropicRelayReport({ imageDataUrl, medium, genre, skillLevel, fileName, workTitle, title }) {
