@@ -1301,6 +1301,73 @@ async function saveReportHistoryExport(body) {
   };
 }
 
+
+const DIST_DIR = path.join(process.cwd(), 'dist');
+
+const staticMimeTypes = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.mjs': 'text/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.webp': 'image/webp',
+  '.svg': 'image/svg+xml; charset=utf-8',
+  '.ico': 'image/x-icon',
+  '.txt': 'text/plain; charset=utf-8',
+  '.map': 'application/json; charset=utf-8',
+};
+
+function getStaticMimeType(filePath) {
+  return staticMimeTypes[path.extname(filePath).toLowerCase()] || 'application/octet-stream';
+}
+
+async function serveStaticApp(request, response, requestUrl) {
+  const method = request.method || 'GET';
+  const rawPath = decodeURIComponent(requestUrl.pathname || '/');
+
+  if (rawPath.startsWith('/api/')) {
+    sendJson(response, 404, { error: 'Not found' });
+    return;
+  }
+
+  const normalizedPath = path.normalize(rawPath).replace(/^([.][.][/\\])+/, '');
+  const relativePath = normalizedPath === '/' || normalizedPath === '.' ? 'index.html' : normalizedPath.replace(/^[/\\]+/, '');
+  let filePath = path.join(DIST_DIR, relativePath);
+
+  if (!filePath.startsWith(DIST_DIR)) {
+    sendJson(response, 403, { error: 'Forbidden' });
+    return;
+  }
+
+  try {
+    const stat = await fs.stat(filePath);
+    if (stat.isDirectory()) {
+      filePath = path.join(filePath, 'index.html');
+    }
+  } catch {
+    filePath = path.join(DIST_DIR, 'index.html');
+  }
+
+  try {
+    const file = await fs.readFile(filePath);
+    response.writeHead(200, {
+      'Content-Type': getStaticMimeType(filePath),
+      'Cache-Control': filePath.endsWith('index.html') ? 'no-cache' : 'public, max-age=31536000, immutable',
+    });
+    if (method !== 'HEAD') {
+      response.end(file);
+    } else {
+      response.end();
+    }
+  } catch (error) {
+    console.error('[PhotoSense AI] static file serve failed:', error);
+    sendJson(response, 404, { error: 'Not found' });
+  }
+}
+
 const server = http.createServer(async (request, response) => {
   if (request.method === 'OPTIONS') {
     setCorsHeaders(response);
@@ -1311,8 +1378,13 @@ const server = http.createServer(async (request, response) => {
 
   const requestUrl = new URL(request.url || '/', `http://${request.headers.host || 'localhost'}`);
 
+  if (request.method === 'GET' || request.method === 'HEAD') {
+    await serveStaticApp(request, response, requestUrl);
+    return;
+  }
+
   if (request.method !== 'POST') {
-    sendJson(response, 404, { error: 'Not found' });
+    sendJson(response, 405, { error: 'Method not allowed' });
     return;
   }
 
