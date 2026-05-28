@@ -1,77 +1,23 @@
 import http from 'node:http';
-import fsSync from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-
-function loadLocalEnvFile() {
-  const envPath = path.join(process.cwd(), '.env');
-
-  if (!fsSync.existsSync(envPath)) {
-    return;
-  }
-
-  const envText = fsSync.readFileSync(envPath, 'utf8');
-
-  for (const rawLine of envText.split(/\r?\n/)) {
-    const line = rawLine.trim();
-
-    if (!line || line.startsWith('#')) {
-      continue;
-    }
-
-    const equalsIndex = line.indexOf('=');
-
-    if (equalsIndex <= 0) {
-      continue;
-    }
-
-    const key = line.slice(0, equalsIndex).trim();
-    let value = line.slice(equalsIndex + 1).trim();
-
-    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
-      value = value.slice(1, -1);
-    }
-
-    if (!process.env[key]) {
-      process.env[key] = value;
-    }
-  }
-}
-
-loadLocalEnvFile();
-
 
 const PORT = Number(process.env.PORT || 8787);
 const OPENAI_RELAY_BASE_URL = process.env.OPENAI_RELAY_BASE_URL?.trim().replace(/\/+$/, '');
 const OPENAI_RELAY_MODEL = process.env.OPENAI_RELAY_MODEL?.trim() || 'gpt-5.4';
+const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+const GEMINI_RELAY_BASE_URL = process.env.GEMINI_RELAY_BASE_URL?.trim().replace(/\/+$/, '');
+const GEMINI_RELAY_MODEL = process.env.GEMINI_RELAY_MODEL?.trim() || 'gemini-3-pro-preview';
+const ANTHROPIC_RELAY_BASE_URL = process.env.ANTHROPIC_RELAY_BASE_URL?.trim().replace(/\/+$/, '');
+const ANTHROPIC_RELAY_MODEL = process.env.ANTHROPIC_RELAY_MODEL?.trim() || 'claude-3-7-sonnet';
 const MAX_BODY_SIZE = 15 * 1024 * 1024;
-const PROVIDER_TIMEOUT_MS = Number(process.env.PROVIDER_TIMEOUT_MS || 45_000);
-const OPENAI_RELAY_TIMEOUT_MS = Number(process.env.OPENAI_RELAY_TIMEOUT_MS || 45_000);
-const OPENAI_RELAY_MAX_TOKENS = Number(process.env.OPENAI_RELAY_MAX_TOKENS || 2500);
-const OPENAI_RELAY_TEMPERATURE = Number(process.env.OPENAI_RELAY_TEMPERATURE || 0.35);
+const PROVIDER_TIMEOUT_MS = 60_000;
+const OPENAI_RELAY_TIMEOUT_MS = 90_000;
+const ANTHROPIC_TIMEOUT_MS = 90_000;
 
 const scoreNames = ['构图', '光线', '色彩', '叙事', '技术完成度'];
 const EXPORTS_DIR = path.join(process.cwd(), 'exports');
 const HISTORY_EXPORT_PATH = path.join(EXPORTS_DIR, 'photosense_reports_history.json');
-const DEBUG_AI_RESPONSE_LATEST_PATH = path.join(EXPORTS_DIR, 'debug_ai_response_latest.txt');
-const DEBUG_AI_OUTPUT_LATEST_PATH = path.join(EXPORTS_DIR, 'debug_ai_output_latest.txt');
-const DIST_DIR = path.join(process.cwd(), 'dist');
-const INDEX_HTML_PATH = path.join(DIST_DIR, 'index.html');
-const STATIC_MIME_TYPES = {
-  '.html': 'text/html; charset=utf-8',
-  '.js': 'text/javascript; charset=utf-8',
-  '.css': 'text/css; charset=utf-8',
-  '.json': 'application/json; charset=utf-8',
-  '.png': 'image/png',
-  '.jpg': 'image/jpeg',
-  '.jpeg': 'image/jpeg',
-  '.webp': 'image/webp',
-  '.svg': 'image/svg+xml',
-  '.ico': 'image/x-icon',
-  '.txt': 'text/plain; charset=utf-8',
-  '.woff': 'font/woff',
-  '.woff2': 'font/woff2',
-};
 
 const mediumEvaluationFocus = {
   数码摄影: '按数码摄影判断时，更重视曝光准确性、高光控制、白平衡、清晰度、噪点控制与后期调整空间。',
@@ -121,53 +67,6 @@ function sendJson(response, statusCode, data) {
   setCorsHeaders(response);
   response.writeHead(statusCode, { 'Content-Type': 'application/json; charset=utf-8' });
   response.end(JSON.stringify(data));
-}
-
-function isSafeStaticPath(filePath) {
-  const relativePath = path.relative(DIST_DIR, filePath);
-  return Boolean(relativePath) && !relativePath.startsWith('..') && !path.isAbsolute(relativePath);
-}
-
-async function sendStaticFile(response, filePath) {
-  const extension = path.extname(filePath).toLowerCase();
-  const contentType = STATIC_MIME_TYPES[extension] || 'application/octet-stream';
-
-  try {
-    const data = await fs.readFile(filePath);
-    response.writeHead(200, {
-      'Content-Type': contentType,
-      'Cache-Control': extension === '.html' ? 'no-store' : 'public, max-age=31536000, immutable',
-    });
-    response.end(data);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-async function serveFrontend(requestUrl, response) {
-  if (!fsSync.existsSync(INDEX_HTML_PATH)) {
-    sendJson(response, 404, {
-      ok: false,
-      error: '前端构建文件不存在。请先运行 npm run build。',
-    });
-    return;
-  }
-
-  const decodedPathname = decodeURIComponent(requestUrl.pathname);
-  const normalizedPathname = decodedPathname === '/' ? '/index.html' : decodedPathname;
-  const requestedFilePath = path.join(DIST_DIR, normalizedPathname);
-
-  if (isSafeStaticPath(requestedFilePath) && fsSync.existsSync(requestedFilePath)) {
-    const stat = await fs.stat(requestedFilePath);
-
-    if (stat.isFile()) {
-      await sendStaticFile(response, requestedFilePath);
-      return;
-    }
-  }
-
-  await sendStaticFile(response, INDEX_HTML_PATH);
 }
 
 function readJsonBody(request) {
@@ -368,136 +267,122 @@ async function fetchWithTimeout(url, options, timeoutMs = PROVIDER_TIMEOUT_MS) {
   }
 }
 
-function sanitizeJsonText(text) {
+function stripJsonMarkdownFences(text) {
   return String(text ?? '')
-    .replace(/^\uFEFF/, '')
     .trim()
-    .replace(/^```(?:json|javascript|js)?\s*/i, '')
+    .replace(/^```(?:json)?\s*/i, '')
     .replace(/\s*```$/i, '')
     .trim();
 }
 
-function removeTrailingCommas(jsonText) {
-  return jsonText.replace(/,\s*([}\]])/g, '$1');
-}
-
-function tryParseJsonCandidate(candidate) {
-  const attempts = [
-    candidate,
-    removeTrailingCommas(candidate),
-    candidate.replace(/[“”]/g, '"').replace(/[‘’]/g, "'"),
-    removeTrailingCommas(candidate.replace(/[“”]/g, '"').replace(/[‘’]/g, "'")),
-  ];
-
-  let lastError;
-
-  for (const attempt of attempts) {
-    try {
-      return JSON.parse(attempt);
-    } catch (error) {
-      lastError = error;
-    }
-  }
-
-  throw lastError;
-}
-
-function findBalancedJsonObjects(text) {
-  const candidates = [];
-  let startIndex = -1;
-  let depth = 0;
+function escapeRawNewlinesInsideJsonStrings(text) {
+  let output = '';
   let inString = false;
   let escaped = false;
 
-  for (let index = 0; index < text.length; index += 1) {
-    const char = text[index];
+  for (const char of text) {
+    if (escaped) {
+      output += char;
+      escaped = false;
+      continue;
+    }
 
-    if (inString) {
-      if (escaped) {
-        escaped = false;
-      } else if (char === '\\') {
-        escaped = true;
-      } else if (char === '"') {
-        inString = false;
-      }
-
+    if (char === '\\') {
+      output += char;
+      escaped = true;
       continue;
     }
 
     if (char === '"') {
-      inString = true;
+      output += char;
+      inString = !inString;
+      continue;
+    }
+
+    if (inString && char === '\n') {
+      output += '\\n';
+      continue;
+    }
+
+    if (inString && char === '\r') {
+      continue;
+    }
+
+    output += char;
+  }
+
+  return output;
+}
+
+function findBalancedJsonObject(text) {
+  const start = text.indexOf('{');
+
+  if (start < 0) {
+    return '';
+  }
+
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+
+  for (let index = start; index < text.length; index += 1) {
+    const char = text[index];
+
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+
+    if (char === '\\') {
+      escaped = true;
+      continue;
+    }
+
+    if (char === '"') {
+      inString = !inString;
+      continue;
+    }
+
+    if (inString) {
       continue;
     }
 
     if (char === '{') {
-      if (depth === 0) {
-        startIndex = index;
-      }
-
       depth += 1;
-      continue;
-    }
+    } else if (char === '}') {
+      depth -= 1;
 
-    if (char === '}') {
-      if (depth > 0) {
-        depth -= 1;
-
-        if (depth === 0 && startIndex >= 0) {
-          candidates.push(text.slice(startIndex, index + 1));
-          startIndex = -1;
-        }
+      if (depth === 0) {
+        return text.slice(start, index + 1);
       }
     }
   }
 
-  return candidates;
+  return '';
 }
 
-async function saveAiDebugFile(filePath, content) {
-  try {
-    await fs.mkdir(EXPORTS_DIR, { recursive: true });
-    await fs.writeFile(filePath, content, 'utf8');
-  } catch (error) {
-    console.warn('[PhotoSense AI] failed to save debug file:', error?.message || error);
+function makeJsonParseError(message, previewText) {
+  const error = new Error(message);
+  error.rawText = previewText;
+  return error;
+}
+
+function tryParseJsonCandidate(candidate) {
+  const variants = [
+    candidate,
+    candidate.replace(/,\s*([}\]])/g, '$1'),
+    escapeRawNewlinesInsideJsonStrings(candidate).replace(/,\s*([}\]])/g, '$1'),
+  ];
+
+  for (const variant of variants) {
+    try {
+      return JSON.parse(variant);
+    } catch {
+      // Try the next candidate.
+    }
   }
-}
 
-async function saveAiDebugSnapshot({ responseText = '', outputText = '', error = null, label = 'openai-relay' }) {
-  const timestamp = new Date().toISOString();
-  const errorText = error ? `${error?.name || 'Error'}: ${error?.message || String(error)}` : 'none';
-  const responseSnapshotPath = path.join(EXPORTS_DIR, `debug_ai_response_${Date.now()}.txt`);
-  const outputSnapshotPath = path.join(EXPORTS_DIR, `debug_ai_output_${Date.now()}.txt`);
-  const responseContent = [
-    `timestamp=${timestamp}`,
-    `label=${label}`,
-    `error=${errorText}`,
-    '',
-    '----- RAW PROVIDER RESPONSE -----',
-    responseText || '',
-  ].join('\n');
-  const outputContent = [
-    `timestamp=${timestamp}`,
-    `label=${label}`,
-    `error=${errorText}`,
-    '',
-    '----- EXTRACTED MODEL OUTPUT -----',
-    outputText || '',
-  ].join('\n');
-
-  await saveAiDebugFile(DEBUG_AI_RESPONSE_LATEST_PATH, responseContent);
-  await saveAiDebugFile(DEBUG_AI_OUTPUT_LATEST_PATH, outputContent);
-  await saveAiDebugFile(responseSnapshotPath, responseContent);
-  await saveAiDebugFile(outputSnapshotPath, outputContent);
-
-  console.error('[PhotoSense AI] debug response saved:', path.relative(process.cwd(), DEBUG_AI_RESPONSE_LATEST_PATH).replace(/\\/g, '/'));
-  console.error('[PhotoSense AI] debug output saved:', path.relative(process.cwd(), DEBUG_AI_OUTPUT_LATEST_PATH).replace(/\\/g, '/'));
-}
-
-function getJsonParsePreview(text) {
-  const normalized = String(text ?? '');
-  const head = normalized.slice(0, 1800);
-  const tail = normalized.length > 1800 ? normalized.slice(-900) : '';
-  return tail ? `${head}\n\n----- OUTPUT TAIL -----\n${tail}` : head;
+  return null;
 }
 
 function extractJsonFromText(text) {
@@ -505,56 +390,37 @@ function extractJsonFromText(text) {
     return text;
   }
 
-  const cleanedText = sanitizeJsonText(text);
+  const cleanedText = stripJsonMarkdownFences(text);
+  const directParsed = tryParseJsonCandidate(cleanedText);
 
-  if (!cleanedText) {
-    throw new Error('AI 返回内容为空，无法解析报告 JSON。');
+  if (directParsed) {
+    return directParsed;
   }
 
-  try {
-    return tryParseJsonCandidate(cleanedText);
-  } catch (directError) {
-    const fencedMatch = cleanedText.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  const balancedCandidate = findBalancedJsonObject(cleanedText);
 
-    if (fencedMatch?.[1]) {
-      try {
-        return tryParseJsonCandidate(fencedMatch[1].trim());
-      } catch {
-        // Continue to balanced object extraction below.
-      }
+  if (balancedCandidate) {
+    const parsedBalanced = tryParseJsonCandidate(balancedCandidate);
+
+    if (parsedBalanced) {
+      return parsedBalanced;
     }
-
-    const candidates = findBalancedJsonObjects(cleanedText);
-
-    for (const candidate of candidates) {
-      try {
-        const parsed = tryParseJsonCandidate(candidate);
-
-        if (parsed && typeof parsed === 'object') {
-          return parsed;
-        }
-      } catch {
-        // Keep looking for another balanced object.
-      }
-    }
-
-    const firstBrace = cleanedText.indexOf('{');
-    const lastBrace = cleanedText.lastIndexOf('}');
-
-    if (firstBrace >= 0 && lastBrace > firstBrace) {
-      const jsonCandidate = cleanedText.slice(firstBrace, lastBrace + 1);
-
-      try {
-        return tryParseJsonCandidate(jsonCandidate);
-      } catch (braceError) {
-        console.error('[PhotoSense AI] JSON parse failed after extracting braces:', braceError?.message || braceError);
-      }
-    }
-
-    console.error('[PhotoSense AI] JSON parse failed:', directError?.message || directError);
-    console.error('[PhotoSense AI] JSON parse failed preview:', getJsonParsePreview(cleanedText));
-    throw new Error('AI 返回内容中未找到可解析的报告 JSON。');
   }
+
+  const firstBrace = cleanedText.indexOf('{');
+  const lastBrace = cleanedText.lastIndexOf('}');
+
+  if (firstBrace >= 0 && lastBrace > firstBrace) {
+    const broadCandidate = cleanedText.slice(firstBrace, lastBrace + 1);
+    const parsedBroad = tryParseJsonCandidate(broadCandidate);
+
+    if (parsedBroad) {
+      return parsedBroad;
+    }
+  }
+
+  console.error('[PhotoSense AI] JSON parse failed. Preview:', cleanedText.slice(0, 1500));
+  throw makeJsonParseError('AI 返回内容中未找到可解析的报告 JSON。', cleanedText.slice(0, 6000));
 }
 
 function parseJsonText(text) {
@@ -588,6 +454,12 @@ const internalMetaPhrases = [
   'AI',
   '模型',
   '建议优化后入选',
+  '现场感已经出现，观看路径还可优化',
+  '空间秩序成立，细节仍需整理',
+  '人物状态可读，背景仍可收紧',
+  '光线有气氛，层次仍可强化',
+  '物件关系成立，质感还可加强',
+  '地方气息可见，叙事还可聚焦',
 ];
 
 function containsInternalMetaLanguage(text = '') {
@@ -605,167 +477,93 @@ function sanitizeUserFacingText(value, fallback) {
   return text;
 }
 
-function getSafeVerdictTitle(genre = '街头摄影') {
-  const titles = {
-    街头摄影: '现场感已经出现，观看路径还可优化',
-    人像摄影: '人物状态可读，背景仍可收紧',
-    风景摄影: '光线有气氛，层次仍可强化',
-    建筑摄影: '空间秩序成立，细节仍需整理',
-    静物摄影: '物件关系成立，质感还可加强',
-    旅行摄影: '地方气息可见，叙事还可聚焦',
-  };
+function getScoreExtremes(scores = {}) {
+  const entries = scoreNames.map((name) => ({ name, score: normalizeScore(scores[name], 70) }));
+  const strongest = entries.reduce((best, item) => (item.score > best.score ? item : best), entries[0]);
+  const weakest = entries.reduce((lowest, item) => (item.score < lowest.score ? item : lowest), entries[0]);
 
-  return titles[genre] || '画面基础成立，重心仍可收紧';
+  return { strongest, weakest };
 }
 
+function getSafeVerdictTitle(genre = '街头摄影', scores = {}, skillLevel = '进阶') {
+  const { strongest, weakest } = getScoreExtremes(scores);
+  const skillTone = {
+    初学者: {
+      构图: '画面氛围可读，取景可再集中',
+      光线: '画面基础清楚，光线还可整理',
+      色彩: '色彩印象明确，关系可再统一',
+      叙事: '现场线索已经出现，故事可再明确',
+      技术完成度: '画面基本成立，细节可再稳住',
+    },
+    进阶: {
+      构图: '结构已经成立，重心仍可压实',
+      光线: '光线有气氛，层次仍可强化',
+      色彩: '色彩氛围完整，关系还可明确',
+      叙事: '现场感已经出现，观看路径还可优化',
+      技术完成度: '画面可读，细节仍需整理',
+    },
+    高级: {
+      构图: '空间关系成立，但取舍仍偏松',
+      光线: '光线方向可读，层次还不够精确',
+      色彩: '色彩气氛成立，表达仍可更克制',
+      叙事: '气氛已经建立，叙事张力仍不足',
+      技术完成度: '完成度具备基础，细节还需推敲',
+    },
+  };
+  const genreFallback = {
+    街头摄影: skillLevel === '高级' ? '现场气息可见，瞬间关系仍需更强' : '现场感已经出现，观看路径还可优化',
+    人像摄影: skillLevel === '高级' ? '人物状态成立，情绪深度仍可推进' : '人物状态自然，背景关系仍可收紧',
+    风景摄影: skillLevel === '高级' ? '气氛成立，但空间层次仍可深化' : '光线有气氛，层次仍可强化',
+    建筑摄影: skillLevel === '高级' ? '结构秩序可见，空间取舍仍需更准' : '空间秩序成立，细节仍需整理',
+    静物摄影: skillLevel === '高级' ? '物件关系成立，质感表达仍可深化' : '物件关系成立，质感还可加强',
+    旅行摄影: skillLevel === '高级' ? '地方气息可见，叙事仍需更具体' : '地方气息可见，叙事还可聚焦',
+  };
 
-function getContextualVerdictPatch({ medium = '数码摄影', genre = '街头摄影', skillLevel = '初学者' }) {
-  const titleByGenreAndLevel = {
-    街头摄影: {
-      初学者: '现场线索可读，先收紧主体',
-      进阶: '瞬间感已出现，秩序还可强化',
-      高级: '现场张力可见，表达仍需取舍',
-    },
-    人像摄影: {
-      初学者: '人物状态清楚，背景先做减法',
-      进阶: '情绪已经可读，分离仍可加强',
-      高级: '人物关系成立，风格还需更锋利',
-    },
-    风景摄影: {
-      初学者: '景物层次可见，先稳住明暗',
-      进阶: '空间感已出现，光线还可等待',
-      高级: '地方气息可读，视觉语言仍可凝练',
-    },
-    建筑摄影: {
-      初学者: '结构已经清楚，先校正边线',
-      进阶: '空间秩序成立，节奏仍可收紧',
-      高级: '体量关系可读，表达还需更克制',
-    },
-    静物摄影: {
-      初学者: '物件关系清楚，先整理背景',
-      进阶: '材质已有表现，阴影仍可优化',
-      高级: '静物秩序成立，形式还可更纯粹',
-    },
-    旅行摄影: {
-      初学者: '地点信息清楚，先突出重点',
-      进阶: '地方感已出现，叙事仍可聚焦',
-      高级: '旅行线索可读，个人视角还可加强',
-    },
-  };
-  const summaryByLevel = {
-    初学者: '画面已经具备可读基础，接下来先处理一个最明确的问题：让主体更快被看见，并减少不必要的干扰。',
-    进阶: '画面不是单纯“拍到”了对象，而是已经开始形成观看顺序；下一步要把主体、光线和背景关系组织得更稳定。',
-    高级: '画面具备继续筛选的价值，但还需要更严格地判断哪些视觉信息真正服务表达，哪些只是削弱作品力量。',
-  };
-  const issueByGenre = {
-    街头摄影: '人物、背景和现场线索之间的关系还可以更集中，避免关键瞬间被次要信息稀释。',
-    人像摄影: '人物状态与背景之间仍有竞争关系，情绪入口可以更干净。',
-    风景摄影: '空间层次和光线重心还可以更明确，让视线从前景到远处的路径更自然。',
-    建筑摄影: '线条、边缘和结构节奏还需要更严谨，避免空间重心被轻微偏差削弱。',
-    静物摄影: '物件间距、阴影形状和背景纯度仍可继续整理，让材质关系更清楚。',
-    旅行摄影: '地点信息已经存在，但人的痕迹、地方气质和叙事重点还可以更聚焦。',
-  };
-  const nextStepByLevel = {
-    初学者: '先做一次轻微裁切，再检查最亮处和边缘杂物，让主体位置更明确。',
-    进阶: '优先调整主体附近的明暗和背景分离，再判断是否需要收紧构图。',
-    高级: '先决定这张照片最值得保留的视觉关系，再删除或压低所有不服务这个关系的元素。',
-  };
-  const mediumNote = medium === '胶片摄影'
-    ? '后期时保留颗粒、色偏和冲扫质感中有助于气氛的部分，不必按数码标准完全校正。'
-    : '后期时优先控制高光、白平衡和局部对比，避免用过重滤镜掩盖画面关系。';
-
-  return {
-    title: titleByGenreAndLevel[genre]?.[skillLevel] || getSafeVerdictTitle(genre),
-    summary: `${summaryByLevel[skillLevel] || summaryByLevel['进阶']}${medium === '胶片摄影' ? ' 胶片质感可以保留为情绪线索。' : ''}`,
-    mainIssue: issueByGenre[genre] || '主要视觉关系还可以更集中。',
-    nextStep: `${nextStepByLevel[skillLevel] || nextStepByLevel['进阶']}${medium === '胶片摄影' ? ' 同时保留自然颗粒和色彩偏移。' : ''}`,
-    tags: medium === '胶片摄影' ? ['观看路径', '胶片质感', '信息取舍'] : ['观看路径', '局部层次', '信息取舍'],
-    mediumNote,
-  };
+  return skillTone[skillLevel]?.[weakest.name] || genreFallback[genre] || skillTone.进阶[weakest.name] || '画面基础成立，重心仍可收紧';
 }
 
-function adjustScoresForContext(scores = {}, { medium = '数码摄影', genre = '街头摄影', skillLevel = '初学者' }) {
-  const levelShift = { 初学者: 4, 进阶: 0, 高级: -7 }[skillLevel] ?? 0;
-  const genreShift = {
-    街头摄影: { 叙事: 3, 技术完成度: -1 },
-    人像摄影: { 光线: 2, 色彩: 2, 叙事: 1 },
-    风景摄影: { 光线: 3, 色彩: 1, 构图: 1 },
-    建筑摄影: { 构图: 3, 技术完成度: 2, 叙事: -2 },
-    静物摄影: { 构图: 2, 色彩: 2, 技术完成度: 1 },
-    旅行摄影: { 叙事: 3, 色彩: 1, 构图: 1 },
-  }[genre] || {};
-  const mediumShift = medium === '胶片摄影' ? { 色彩: 2, 叙事: 1, 技术完成度: -2 } : { 技术完成度: 1, 色彩: 1 };
-  const values = scoreNames.map((name) => Number(scores[name])).filter(Number.isFinite);
-  const tooFlat = values.length === scoreNames.length && Math.max(...values) - Math.min(...values) <= 5;
-
-  return scoreNames.reduce((result, name) => {
-    const base = normalizeScore(scores[name], getFallbackScores(medium, genre, skillLevel)[name]);
-    const flatPenalty = tooFlat && (name === '叙事' || name === '光线') ? -4 : 0;
-    const raw = base + levelShift + (genreShift[name] || 0) + (mediumShift[name] || 0) + flatPenalty;
-    result[name] = Math.max(35, Math.min(96, Math.round(raw)));
-    return result;
-  }, {});
+function getSkillScoreShift(skillLevel = '进阶') {
+  if (skillLevel === '初学者') return 7;
+  if (skillLevel === '高级') return -11;
+  return -1;
 }
 
-function contextualizeDiagnosticText(text, fallback, { medium = '数码摄影', genre = '街头摄影', skillLevel = '初学者' }, dimension) {
-  const cleaned = sanitizeUserFacingText(text, fallback);
-  const shouldReplace = containsInternalMetaLanguage(cleaned) || cleaned.length < 18;
+function calibrateScoresBySkillLevel(scores = {}, skillLevel = '进阶') {
+  const rawEntries = scoreNames.map((name) => ({ name, score: normalizeScore(scores[name], 70) }));
+  const rawAverage = Math.round(rawEntries.reduce((sum, item) => sum + item.score, 0) / rawEntries.length);
+  const shift = getSkillScoreShift(skillLevel);
+  const sorted = [...rawEntries].sort((a, b) => b.score - a.score);
+  const strongestName = sorted[0]?.name;
+  const weakestName = sorted[sorted.length - 1]?.name;
+  const calibrated = {};
 
-  if (shouldReplace) {
-    return fallback;
+  for (const item of rawEntries) {
+    let value = item.score + shift;
+
+    if (rawEntries.every((entry) => Math.abs(entry.score - rawEntries[0].score) <= 4)) {
+      if (item.name === strongestName) value += 3;
+      if (item.name === weakestName) value -= 5;
+    }
+
+    if (skillLevel === '初学者') {
+      value = Math.max(55, Math.min(93, value));
+    } else if (skillLevel === '高级') {
+      const highCap = rawAverage >= 88 ? 86 : rawAverage >= 82 ? 80 : 76;
+      value = Math.max(35, Math.min(highCap, value));
+    } else {
+      const midCap = rawAverage >= 88 ? 90 : 84;
+      value = Math.max(45, Math.min(midCap, value));
+    }
+
+    calibrated[item.name] = Math.max(0, Math.min(100, Math.round(value)));
   }
 
-  const levelAction = {
-    初学者: '方向：先完成一个最明确的调整，再比较前后差异。',
-    进阶: '方向：把主体、背景和明暗关系放在一起判断，而不是只修单个局部。',
-    高级: '方向：用作品筛选的标准保留真正服务表达的部分，其余信息要敢于舍弃。',
-  }[skillLevel];
-  const mediumAction = medium === '胶片摄影' && dimension === '技术完成度'
-    ? '方向：保留有助于气氛的颗粒和色偏，只修正明显破坏观看的冲扫问题。'
-    : null;
+  console.log('[PhotoSense AI] raw model scores:', JSON.stringify(Object.fromEntries(rawEntries.map((item) => [item.name, item.score]))));
+  console.log('[PhotoSense AI] skillLevel:', skillLevel);
+  console.log('[PhotoSense AI] calibrated scores:', JSON.stringify(calibrated));
+  console.log('[PhotoSense AI] final overall score:', Math.round(scoreNames.reduce((sum, name) => sum + calibrated[name], 0) / scoreNames.length));
 
-  if (/方向：/.test(cleaned)) {
-    return cleaned.replace(/方向：.+$/, mediumAction || levelAction);
-  }
-
-  return `${cleaned}${cleaned.endsWith('。') ? '' : '。'}${mediumAction || levelAction}`;
-}
-
-function getContextualPostProcessing(fallbackPostProcessing, contextPatch, { medium = '数码摄影', genre = '街头摄影', skillLevel = '初学者' }) {
-  const cropByGenre = {
-    街头摄影: '基本保留现场关系，只裁掉最分散注意力的边缘亮点。',
-    人像摄影: '优先收紧人物头肩或身体周围的背景干扰，让表情和姿态更先被看见。',
-    风景摄影: '先检查地平线和前景比例，必要时裁掉削弱空间层次的空白区域。',
-    建筑摄影: '先校正垂直线与水平线，再用小幅裁切稳定边缘结构。',
-    静物摄影: '围绕主物件和阴影形状裁切，保留足够呼吸感。',
-    旅行摄影: '保留能说明地点的线索，裁掉只增加杂乱感的游客、招牌或空白区域。',
-  };
-  const maskingByLevel = {
-    初学者: '只做一处柔和局部提亮或压暗，避免同时修改太多区域。',
-    进阶: '用局部调整拉开主体与背景亮度关系，让观看顺序更明确。',
-    高级: '仅保留非常克制的局部整理，不要把现场光线修成过度设计感。',
-  };
-  const toneSuggestion = medium === '胶片摄影'
-    ? '保留颗粒、色偏和冲扫质感，只轻微压住过亮区域或脏色块。'
-    : '轻微回收高光，整理主体附近的中间调和局部对比。';
-
-  return {
-    crop: {
-      suggestion: cropByGenre[genre] || fallbackPostProcessing.crop.suggestion,
-      reason: fallbackPostProcessing.crop.reason,
-      expectedEffect: '画面重点更快出现，同时不牺牲原有场景气氛。',
-    },
-    tone: {
-      suggestion: toneSuggestion,
-      reason: contextPatch.mediumNote,
-      expectedEffect: medium === '胶片摄影' ? '保留胶片气氛，同时让明暗关系更稳定。' : '画面层次更集中，照片不会显得过度处理。',
-    },
-    masking: {
-      suggestion: maskingByLevel[skillLevel] || fallbackPostProcessing.masking.suggestion,
-      reason: fallbackPostProcessing.masking.reason,
-      expectedEffect: skillLevel === '高级' ? '维持现场光线性格，同时提高作品筛选时的完成度。' : '让视线更稳定地停留在关键区域。',
-    },
-  };
+  return calibrated;
 }
 
 function getFallbackScores(medium = '数码摄影', genre = '街头摄影', skillLevel = '初学者') {
@@ -909,7 +707,7 @@ function normalizeReport(report, { genre, skillLevel, medium }) {
       cropRatio: genre === '人像摄影' ? '4:5 竖幅' : '3:2 编辑裁切',
     },
     verdict: {
-      title: getSafeVerdictTitle(genre),
+      title: getSafeVerdictTitle(genre, fallbackScores, skillLevel),
       summary: '画面已有可读的视觉基础，但观看路径和信息取舍仍可继续整理，让主要关系更快被看见。',
       mainIssue: medium === '胶片摄影'
         ? '颗粒、色偏和现场气氛还需要更明确地共同指向主题。'
@@ -942,10 +740,16 @@ function normalizeReport(report, { genre, skillLevel, medium }) {
   };
 
   const sourceScores = report?.scores || {};
-  const scores = scoreNames.reduce((result, name) => {
+  const rawNormalizedScores = scoreNames.reduce((result, name) => {
     result[name] = normalizeScore(sourceScores[name], fallback.scores[name]);
     return result;
   }, {});
+  const scores = calibrateScoresBySkillLevel(rawNormalizedScores, skillLevel);
+  fallback.scores = scores;
+  fallback.verdict = {
+    ...fallback.verdict,
+    title: getSafeVerdictTitle(genre, scores, skillLevel),
+  };
 
   const sourceSuggestions = Array.isArray(report?.suggestions)
     ? report.suggestions.filter((item) => typeof item === 'string' && item.trim()).slice(0, 3)
@@ -957,20 +761,15 @@ function normalizeReport(report, { genre, skillLevel, medium }) {
 
   const sourceRecipe = report?.recipe || {};
 
-  const contextPatch = getContextualVerdictPatch({ medium, genre, skillLevel });
-  const normalizedPostProcessing = normalizePostProcessing(report?.postProcessing, fallback.postProcessing);
-  const calibratedPostProcessing = getContextualPostProcessing(normalizedPostProcessing, contextPatch, { medium, genre, skillLevel });
-  const calibratedScores = adjustScoresForContext(scores, { medium, genre, skillLevel });
-
   return {
-    overall: sanitizeUserFacingText(report?.overall, fallback.overall),
-    scores: calibratedScores,
-    composition: contextualizeDiagnosticText(report?.composition, fallback.composition, { medium, genre, skillLevel }, '构图'),
-    lighting: contextualizeDiagnosticText(report?.lighting, fallback.lighting, { medium, genre, skillLevel }, '光线'),
-    colour: contextualizeDiagnosticText(report?.colour, fallback.colour, { medium, genre, skillLevel }, '色彩'),
-    storytelling: contextualizeDiagnosticText(report?.storytelling, fallback.storytelling, { medium, genre, skillLevel }, '叙事'),
-    technical: contextualizeDiagnosticText(report?.technical, fallback.technical, { medium, genre, skillLevel }, '技术完成度'),
-    suggestions: sourceSuggestions.map((item, index) => sanitizeUserFacingText(item, fallback.suggestions[index])),
+    overall: normalizeText(report?.overall, fallback.overall),
+    scores,
+    composition: normalizeText(report?.composition, fallback.composition),
+    lighting: normalizeText(report?.lighting, fallback.lighting),
+    colour: normalizeText(report?.colour, fallback.colour),
+    storytelling: normalizeText(report?.storytelling, fallback.storytelling),
+    technical: normalizeText(report?.technical, fallback.technical),
+    suggestions: sourceSuggestions,
     recipe: {
       exposure: normalizeText(sourceRecipe.exposure, fallback.recipe.exposure),
       contrast: normalizeText(sourceRecipe.contrast, fallback.recipe.contrast),
@@ -979,20 +778,22 @@ function normalizeReport(report, { genre, skillLevel, medium }) {
       temperature: normalizeText(sourceRecipe.temperature, fallback.recipe.temperature),
       cropRatio: normalizeText(sourceRecipe.cropRatio, fallback.recipe.cropRatio),
     },
-    verdict: normalizeVerdict(report?.verdict, { ...fallback.verdict, ...contextPatch }),
+    verdict: normalizeVerdict(report?.verdict, fallback.verdict),
     reviewContext: normalizeReviewContext(report?.reviewContext, fallback.reviewContext),
-    postProcessing: calibratedPostProcessing,
-    nextShooting: normalizeNextShooting(report?.nextShooting, {
-      summary: `${fallback.nextShooting.summary}${skillLevel === '高级' ? ' 同时请用更严格的作品筛选意识检查这张照片是否有独立表达。' : ''}`,
-      items: fallback.nextShooting.items,
-    }),
+    postProcessing: normalizePostProcessing(report?.postProcessing, fallback.postProcessing),
+    nextShooting: normalizeNextShooting(report?.nextShooting, fallback.nextShooting),
   };
 }
 
 function createReportPrompt({ medium = '数码摄影', genre = '街头摄影', skillLevel = '初学者', fileName = '', workTitle = '', title = '' }) {
   const selectedReviewContext = getReviewContext(medium, genre, skillLevel);
+  const skillStrictness = {
+    初学者: '更宽容、更教学化；普通可读照片可以得到较高鼓励分，建议要简单明确。',
+    进阶: '正常摄影点评标准；指出具体优缺点，分数居中，不要过度鼓励。',
+    高级: '作品集/编辑评审标准；更严格，普通照片不要轻易超过 80 分，建议更偏表达完成度。',
+  }[skillLevel] || '正常摄影点评标准。';
 
-  return `你是 PhotoSense AI 的中文摄影导师。请快速阅读照片，输出紧凑 JSON。不要 Markdown，不要解释 JSON 外内容。
+  return `你是 PhotoSense AI 的中文摄影导师。请根据上传照片生成一份简洁、具体、可执行的摄影点评报告。
 
 用户选择：
 - 文件名：${fileName || '未命名照片'}
@@ -1001,53 +802,77 @@ function createReportPrompt({ medium = '数码摄影', genre = '街头摄影', s
 - 摄影题材：${genre}
 - 点评口径：${skillLevel}
 
-本次评价焦点：
-- 介质：${selectedReviewContext.mediumFocus}
-- 水平：${selectedReviewContext.levelFocus}
-- 题材：${selectedReviewContext.genreFocus}
-- 评分：${selectedReviewContext.scoringLogic}
+评价上下文：
+- 影像介质标准：${selectedReviewContext.mediumFocus}
+- 点评口径标准：${selectedReviewContext.levelFocus}
+- 题材标准：${selectedReviewContext.genreFocus}
+- 评分侧重：${selectedReviewContext.scoringLogic}
+- 严格度：${skillStrictness}
 
-核心要求：
-1. 只基于照片可见内容写，不编造相机参数、地点、人物身份。
-2. 同一张照片在不同“影像介质 / 摄影题材 / 点评口径”下必须有不同侧重点。
-3. ${medium === '胶片摄影' ? '胶片摄影要尊重颗粒、色偏、冲扫质感，不要按数码标准强行校正。' : '数码摄影重点看曝光、高光、白平衡、清晰度、噪点和后期空间。'}
-4. ${skillLevel === '初学者' ? '初学者：语言更易懂、更鼓励，重点给一个清楚下一步。' : skillLevel === '高级' ? '高级：用作品集/编辑筛选标准，更严格看作者意图、视觉语言和取舍。' : '进阶：正常摄影点评术语，解释构图、光线、色彩、主体分离和观看顺序。'}
-5. ${genre} 要按该题材判断，不要写成通用摄影点评。
-6. 用户可见字段不得出现：本次评分、评分侧重、评价基准、点评口径、按初学者口径、按进阶口径、按高级口径、用户选择、AI、模型、建议优化后入选。
-7. 文本短而具体。每个诊断字段只写“结论：...。说明：...。方向：...。”三段。
-8. 分数为 0-100 整数，拉开差异，不要全部挤在 75-80。
+必须遵守：
+1. 只返回一个合法 JSON object。不要 Markdown，不要解释，不要代码围栏。第一个字符必须是 {，最后一个字符必须是 }。
+2. 所有字符串必须用双引号。不要尾随逗号。不要在字符串里写未转义换行。
+3. 文本要短。verdict.title 8-22 个汉字；summary 1-2 句；每个建议字段尽量不超过 45 个汉字。
+4. verdict、postProcessing、nextShooting 必须像给用户看的摄影点评，不要像系统说明。
+5. 这些词不得出现在 verdict、postProcessing、nextShooting 中：本次评分、评分侧重、评价基准、点评口径、按初学者口径、按进阶口径、按高级口径、用户选择、AI、模型、建议优化后入选。
+6. reviewContext 可以解释评价标准；但不要把 reviewContext 句子复制到 verdict.summary。
+7. 不要使用“xx摄影的画面基础成立，仍需按xx口径收紧判断”这类模板句。
+8. 不要编造相机参数、地名、精确坐标或框选区域。
 
-题材速查：街头看瞬间/人物姿态/环境关系；人像看表情眼神/肤色/背景分离；风景看光线时机/空间层次/地方感；建筑看透视/线条/结构节奏；静物看物件关系/材质/阴影；旅行看地方感/人的痕迹/叙事。
+评分规则：
+- scores 必须是 0-100 整数。
+- 90-100：非常出色或作品集级别；80-89：强但仍可改进；70-79：不错但限制明显；60-69：普通或明显受限；45-59：偏弱但有可用部分；45 以下：严重问题。
+- 不要全部集中到 75/78/80。若有明显强弱项，维度之间可以相差 10-20 分。
+- 同一张普通照片在初学者下应更宽容，进阶居中，高级更严格。高级口径下普通照片不要轻易超过 80。
 
-输出格式硬性要求：
-- 只返回一个合法 JSON 对象。
-- 不要返回 Markdown。
-- 不要返回代码块标记。
-- 不要添加 JSON 外说明。
-- 所有 key 必须使用英文双引号。
-- 所有字符串必须是单行中文字符串，不能包含真实换行符。
-- 不要输出注释、列表符号、解释段落或第二个 JSON。
-- 字段必须齐全；如果不确定，也要根据照片可见内容给出保守判断。
-- 控制文本长度，避免超过输出上限。
+题材判断要点：
+- 街头摄影：时机、人物姿态、主体与环境关系、现场秩序与张力。
+- 人像摄影：表情眼神、肤色、姿态、人物与背景关系、情绪可信度。
+- 风景摄影：空间层次、光线时机、前中后景、影调和地方感。
+- 建筑摄影：透视控制、垂直水平线、结构节奏、材质与光线体量。
+- 静物摄影：物件关系、材质、阴影、背景、留白。
+- 旅行摄影：地方感、人的痕迹、叙事上下文、记录与作品性的平衡。
 
-必须返回这个 JSON 结构，字段齐全，所有字符串用中文：
+后期建议：
+- 必须结合可见画面和用户选择，不要泛泛而谈。
+- 如果当前照片在该口径下已经不错，可以写“基本保持当前裁切”“不建议大幅改变影调”“仅做轻微局部整理”“当前处理已基本足够”。
+- 胶片摄影要尊重颗粒、色偏、冲扫质感；数码摄影可讨论高光、白平衡、锐度、噪点、局部对比。
+
+下次拍摄建议：
+- 必须引用可见场景信息，例如背景、天气/天空、光线、主体位置、人物姿态、建筑结构、前中后景、拍摄距离或角度。
+- 不要给每张照片相同的通用动作。
+
+输出 JSON 结构如下，字段名必须一致：
 {
-  "overall": "总体印象，1句",
-  "verdict": {"title": "8-22个汉字", "summary": "1句整体结论", "mainIssue": "主要问题", "nextStep": "最重要的下一步", "tags": ["标签1", "标签2", "标签3"]},
-  "reviewContext": {"mediumFocus": "介质如何影响评价", "levelFocus": "水平如何影响评价", "genreFocus": "题材判断标准", "scoringLogic": "评分最重视什么"},
-  "scores": {"构图": 78, "光线": 76, "色彩": 80, "叙事": 75, "技术完成度": 82},
+  "overall": "总体印象，1-2句中文",
+  "verdict": {
+    "title": "用户主标题",
+    "summary": "整体结论",
+    "mainIssue": "最主要的可见问题",
+    "nextStep": "最重要的下一步动作",
+    "tags": ["标签1", "标签2", "标签3"]
+  },
+  "reviewContext": {
+    "mediumFocus": "影像介质如何影响评价",
+    "levelFocus": "点评口径如何影响评价",
+    "genreFocus": "题材判断标准",
+    "scoringLogic": "评分最重视什么"
+  },
+  "scores": {"构图": 78, "光线": 72, "色彩": 80, "叙事": 66, "技术完成度": 75},
   "composition": "结论：...。说明：...。方向：...。",
   "lighting": "结论：...。说明：...。方向：...。",
   "colour": "结论：...。说明：...。方向：...。",
   "storytelling": "结论：...。说明：...。方向：...。",
   "technical": "结论：...。说明：...。方向：...。",
-  "suggestions": ["可执行建议1", "可执行建议2", "可执行建议3"],
-  "postProcessing": {"crop": {"suggestion": "裁剪建议", "reason": "原因", "expectedEffect": "效果"}, "tone": {"suggestion": "影调建议", "reason": "原因", "expectedEffect": "效果"}, "masking": {"suggestion": "局部处理建议", "reason": "原因", "expectedEffect": "效果"}},
-  "nextShooting": {"summary": "下次拍摄总建议", "items": ["行动1", "行动2", "行动3"]},
-  "recipe": {"exposure": "+0.20", "contrast": "+12", "highlights": "-18", "shadows": "+10", "temperature": "+2 偏暖", "cropRatio": "3:2 编辑裁切"}
+  "suggestions": ["建议1", "建议2", "建议3"],
+  "postProcessing": {
+    "crop": {"suggestion": "裁剪建议", "reason": "理由", "expectedEffect": "预期效果"},
+    "tone": {"suggestion": "影调建议", "reason": "理由", "expectedEffect": "预期效果"},
+    "masking": {"suggestion": "蒙版建议", "reason": "理由", "expectedEffect": "预期效果"}
+  },
+  "nextShooting": {"summary": "下次拍摄总建议", "items": ["行动1", "行动2", "行动3"]}
 }`;
 }
-
 async function createNativeGeminiReport({ imageDataUrl, medium, genre, skillLevel, fileName, workTitle, title }) {
   const apiKey = process.env.GEMINI_API_KEY;
 
@@ -1144,7 +969,7 @@ async function createRelayReport({ imageDataUrl, medium, genre, skillLevel, file
           role: 'user',
           content: [
             { type: 'text', text: prompt },
-            { type: 'image_url', image_url: { url: imageDataUrl, detail: 'low' } },
+            { type: 'image_url', image_url: { url: imageDataUrl } },
           ],
         },
       ],
@@ -1182,6 +1007,75 @@ async function createRelayReport({ imageDataUrl, medium, genre, skillLevel, file
   return normalizeReport(parseJsonText(outputText), { genre, skillLevel, medium });
 }
 
+function createJsonRepairPrompt({ brokenText, medium, genre, skillLevel }) {
+  const safeBrokenText = String(brokenText || '').slice(0, 12000);
+
+  return `你是 JSON 修复器。下面是一段由摄影点评模型返回的损坏 JSON 或 JSON-like 文本。请只做格式修复和字段补全，不要重新点评照片。
+
+修复要求：
+- 只返回一个合法 JSON object。
+- 第一个字符必须是 {，最后一个字符必须是 }。
+- 不要 Markdown，不要解释。
+- 所有字符串必须使用双引号。
+- 不要尾随逗号。
+- 如果某个字段缺失或残缺，请用简短中文补全。
+- scores 必须是 0-100 整数。
+- 不要在 verdict、postProcessing、nextShooting 中写“本次评分、评分侧重、评价基准、点评口径、按初学者口径、按进阶口径、按高级口径、用户选择、AI、模型、建议优化后入选”。
+
+当前上下文：
+- 影像介质：${medium}
+- 摄影题材：${genre}
+- 点评口径：${skillLevel}
+
+必须输出这些顶层字段：overall, verdict, reviewContext, scores, composition, lighting, colour, storytelling, technical, suggestions, postProcessing, nextShooting。recipe 可省略。
+
+损坏文本如下：
+${safeBrokenText}`;
+}
+
+async function repairReportJsonWithOpenAiRelay({ apiKey, relayUrl, brokenText, medium, genre, skillLevel }) {
+  console.warn('[PhotoSense AI] JSON parse failed; attempting OpenAI relay JSON repair.');
+
+  const repairResponse = await fetchWithTimeout(relayUrl, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: OPENAI_RELAY_MODEL,
+      messages: [
+        {
+          role: 'user',
+          content: createJsonRepairPrompt({ brokenText, medium, genre, skillLevel }),
+        },
+      ],
+      temperature: 0,
+      max_tokens: 2600,
+      response_format: { type: 'json_object' },
+    }),
+  }, OPENAI_RELAY_TIMEOUT_MS);
+
+  console.log('[PhotoSense AI] OpenAI relay JSON repair response status:', repairResponse.status);
+
+  const repairResponseText = await repairResponse.text();
+  console.log('[PhotoSense AI] OpenAI relay JSON repair preview:', repairResponseText.slice(0, 1200));
+
+  if (!repairResponse.ok) {
+    const error = new Error('OpenAI-compatible relay JSON 修复请求失败。');
+    error.statusCode = repairResponse.status;
+    throw error;
+  }
+
+  const repairOutputText = parseOpenAiRelayResponseText(repairResponseText);
+
+  if (!repairOutputText) {
+    throw new Error('OpenAI-compatible relay JSON 修复没有返回可解析文本。');
+  }
+
+  return extractJsonFromText(repairOutputText);
+}
+
 async function createOpenAiRelayReport({ imageDataUrl, medium, genre, skillLevel, fileName, workTitle, title }) {
   const apiKey = process.env.OPENAI_RELAY_API_KEY;
 
@@ -1214,12 +1108,12 @@ async function createOpenAiRelayReport({ imageDataUrl, medium, genre, skillLevel
           role: 'user',
           content: [
             { type: 'text', text: prompt },
-            { type: 'image_url', image_url: { url: imageDataUrl, detail: 'low' } },
+            { type: 'image_url', image_url: { url: imageDataUrl } },
           ],
         },
       ],
-      temperature: OPENAI_RELAY_TEMPERATURE,
-      max_tokens: OPENAI_RELAY_MAX_TOKENS,
+      temperature: 0.45,
+      max_tokens: 3000,
       response_format: { type: 'json_object' },
     }),
   }, OPENAI_RELAY_TIMEOUT_MS);
@@ -1229,6 +1123,8 @@ async function createOpenAiRelayReport({ imageDataUrl, medium, genre, skillLevel
   const responseText = await relayResponse.text();
   const contentType = relayResponse.headers.get('content-type') || '';
   console.log('[PhotoSense AI] OpenAI relay response content-type:', contentType);
+  console.log('[PhotoSense AI] OpenAI relay responseText length:', responseText.length);
+  console.log('[PhotoSense AI] OpenAI relay response preview:', responseText.slice(0, 1500));
 
   if (!relayResponse.ok) {
     console.error('[PhotoSense AI] OpenAI relay error body preview if not ok:', responseText.slice(0, 1200));
@@ -1239,38 +1135,31 @@ async function createOpenAiRelayReport({ imageDataUrl, medium, genre, skillLevel
 
   console.log('[PhotoSense AI] OpenAI relay response received');
 
-  let relayDataForDebug = null;
-  try {
-    relayDataForDebug = JSON.parse(responseText);
-    const finishReason = relayDataForDebug?.choices?.[0]?.finish_reason || relayDataForDebug?.finish_reason || relayDataForDebug?.data?.choices?.[0]?.finish_reason;
-    if (finishReason) {
-      console.log('[PhotoSense AI] OpenAI relay finish_reason:', finishReason);
-    }
-    if (relayDataForDebug?.usage) {
-      console.log('[PhotoSense AI] OpenAI relay usage:', JSON.stringify(relayDataForDebug.usage));
-    }
-  } catch {
-    console.warn('[PhotoSense AI] OpenAI relay response is not directly parseable JSON; trying text extraction.');
-  }
-
   const outputText = parseOpenAiRelayResponseText(responseText);
-  console.log('[PhotoSense AI] OpenAI relay raw response length:', responseText.length);
-  console.log('[PhotoSense AI] OpenAI relay extracted output length:', outputText.length);
 
   if (!outputText) {
-    await saveAiDebugSnapshot({ responseText, outputText, label: 'openai-relay-empty-output' });
     throw new Error('OpenAI-compatible relay API 没有返回可解析的报告文本。');
   }
 
   console.log('[PhotoSense AI] JSON parse starts');
 
+  let parsedReport;
+
   try {
-    const parsedReport = extractJsonFromText(outputText);
-    return normalizeReport(parsedReport, { genre, skillLevel, medium });
-  } catch (error) {
-    await saveAiDebugSnapshot({ responseText, outputText, error, label: 'openai-relay-json-parse-failed' });
-    throw error;
+    parsedReport = extractJsonFromText(outputText);
+  } catch (parseError) {
+    console.warn('[PhotoSense AI] first JSON parse failed:', parseError?.message || parseError);
+    parsedReport = await repairReportJsonWithOpenAiRelay({
+      apiKey,
+      relayUrl,
+      brokenText: parseError?.rawText || outputText,
+      medium,
+      genre,
+      skillLevel,
+    });
   }
+
+  return normalizeReport(parsedReport, { genre, skillLevel, medium });
 }
 
 async function createAnthropicRelayReport({ imageDataUrl, medium, genre, skillLevel, fileName, workTitle, title }) {
@@ -1301,7 +1190,7 @@ async function createAnthropicRelayReport({ imageDataUrl, medium, genre, skillLe
     },
     body: JSON.stringify({
       model: ANTHROPIC_RELAY_MODEL,
-      max_tokens: 1800,
+      max_tokens: 3000,
       temperature: 0.45,
       messages: [
         {
@@ -1360,13 +1249,25 @@ async function createAnthropicRelayReport({ imageDataUrl, medium, genre, skillLe
 async function createPhotoReport({ imageDataUrl, medium = '数码摄影', genre = '街头摄影', skillLevel = '初学者', fileName = '', workTitle = '', title = '' }) {
   const context = { imageDataUrl, medium, genre, skillLevel, fileName, workTitle, title };
 
-  if (!OPENAI_RELAY_BASE_URL) {
-    const error = new Error('未配置 OPENAI_RELAY_BASE_URL。请在 .env 中填写你的中转 API Base URL，例如 https://你的中转API地址/v1。');
-    error.statusCode = 503;
-    throw error;
+  if (OPENAI_RELAY_BASE_URL) {
+    return createOpenAiRelayReport(context);
   }
 
-  return createOpenAiRelayReport(context);
+  if (GEMINI_RELAY_BASE_URL) {
+    return createRelayReport(context);
+  }
+
+  if (ANTHROPIC_RELAY_BASE_URL) {
+    return createAnthropicRelayReport(context);
+  }
+
+  if (process.env.GEMINI_API_KEY) {
+    return createNativeGeminiReport(context);
+  }
+
+  const error = new Error('未配置可用的 AI provider API Key。');
+  error.statusCode = 503;
+  throw error;
 }
 
 function createExportFileName(date = new Date()) {
@@ -1409,20 +1310,6 @@ const server = http.createServer(async (request, response) => {
   }
 
   const requestUrl = new URL(request.url || '/', `http://${request.headers.host || 'localhost'}`);
-
-  if (request.method === 'GET' && requestUrl.pathname === '/api/health') {
-    sendJson(response, 200, {
-      ok: true,
-      app: 'PhotoSense AI',
-      status: 'healthy',
-    });
-    return;
-  }
-
-  if ((request.method === 'GET' || request.method === 'HEAD') && !requestUrl.pathname.startsWith('/api/')) {
-    await serveFrontend(requestUrl, response);
-    return;
-  }
 
   if (request.method !== 'POST') {
     sendJson(response, 404, { error: 'Not found' });
@@ -1478,6 +1365,5 @@ const server = http.createServer(async (request, response) => {
 });
 
 server.listen(PORT, () => {
-  console.log(`PhotoSense AI running on port ${PORT}`);
-  console.log(`API endpoint: http://localhost:${PORT}/api/analyze-photo`);
+  console.log(`PhotoSense AI local API running at http://localhost:${PORT}/api/analyze-photo`);
 });
