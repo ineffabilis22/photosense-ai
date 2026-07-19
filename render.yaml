@@ -1,0 +1,21 @@
+services:
+  - type: web
+    runtime: node
+    name: photosense-ai
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    envVars:
+      - key: NODE_VERSION
+        value: 20.19.0
+      - key: NODE_ENV
+        value: production
+      - key: ENABLE_HISTORY_EXPORT
+        value: "false"
+      - key: VITE_ENABLE_HISTORY_EXPORT
+        value: "false"
+      - key: OPENAI_RELAY_BASE_URL
+        sync: false
+      - key: OPENAI_RELAY_API_KEY
+        sync: false
+      - key: OPENAI_RELAY_MODEL
+        sync: false

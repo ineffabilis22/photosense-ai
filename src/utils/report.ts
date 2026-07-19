@@ -1,8 +1,6 @@
-import type { Genre, GenreAssessment, PostProcessingAdviceItem, Report, ReviewContext, ScoreName } from '../types/report';
-import { normalizePreviewAdjustments } from './preview';
+import type { PostProcessingAdviceItem, Report, ReviewContext, ScoreName } from '../types/report';
 
 const scoreNames: ScoreName[] = ['构图', '光线', '色彩', '叙事', '技术完成度'];
-const genres: Genre[] = ['街头摄影', '人像摄影', '风景摄影', '建筑摄影', '静物摄影', '旅行摄影'];
 const internalMetaPhrases = [
   '本次评分',
   '评分侧重',
@@ -11,8 +9,6 @@ const internalMetaPhrases = [
   '按初学者口径',
   '按进阶口径',
   '按高级口径',
-  '按爱好者水平口径',
-  '按进阶水平口径',
   '用户选择',
   'AI',
   '模型',
@@ -54,21 +50,6 @@ function normalizeAdvice(value: unknown, fallback: PostProcessingAdviceItem) {
     suggestion: sanitizeUserFacingText(source.suggestion, fallback.suggestion),
     reason: sanitizeUserFacingText(source.reason, fallback.reason),
     expectedEffect: sanitizeUserFacingText(source.expectedEffect, fallback.expectedEffect),
-  };
-}
-
-function normalizeGenreAssessment(value: unknown): GenreAssessment | undefined {
-  if (!isRecord(value) || !genres.includes(value.detectedGenre as Genre)) return undefined;
-
-  const confidence = typeof value.confidence === 'number' ? value.confidence : Number(value.confidence);
-  const reason = typeof value.reason === 'string' ? value.reason.trim() : '';
-
-  if (!Number.isFinite(confidence) || !reason) return undefined;
-
-  return {
-    detectedGenre: value.detectedGenre as Genre,
-    confidence: Math.max(0, Math.min(1, confidence)),
-    reason: reason.slice(0, 160),
   };
 }
 
@@ -116,14 +97,6 @@ export function mergeAiReportWithFallback(candidate: unknown, fallback: Report, 
   const sourceCrop = isRecord(sourcePhotoSpecific.crop) ? sourcePhotoSpecific.crop : {};
   const sourceScoreReasons = isRecord(source.scoreReasons) ? source.scoreReasons : {};
   const fallbackScoreReasons = fallback.scoreReasons ?? {};
-  const recipe = {
-    exposure: sanitizeUserFacingText(sourceRecipe.exposure, fallback.recipe.exposure),
-    contrast: sanitizeUserFacingText(sourceRecipe.contrast, fallback.recipe.contrast),
-    highlights: sanitizeUserFacingText(sourceRecipe.highlights, fallback.recipe.highlights),
-    shadows: sanitizeUserFacingText(sourceRecipe.shadows, fallback.recipe.shadows),
-    temperature: sanitizeUserFacingText(sourceRecipe.temperature, fallback.recipe.temperature),
-    cropRatio: sanitizeUserFacingText(sourceRecipe.cropRatio, fallback.recipe.cropRatio),
-  };
 
   return {
     overall: sanitizeUserFacingText(source.overall, fallback.overall),
@@ -134,8 +107,14 @@ export function mergeAiReportWithFallback(candidate: unknown, fallback: Report, 
     storytelling: sanitizeUserFacingText(source.storytelling, fallback.storytelling),
     technical: sanitizeUserFacingText(source.technical, fallback.technical),
     suggestions: normalizeStringArray(source.suggestions, fallback.suggestions, 3),
-    recipe,
-    previewAdjustments: normalizePreviewAdjustments(source.previewAdjustments, recipe),
+    recipe: {
+      exposure: sanitizeUserFacingText(sourceRecipe.exposure, fallback.recipe.exposure),
+      contrast: sanitizeUserFacingText(sourceRecipe.contrast, fallback.recipe.contrast),
+      highlights: sanitizeUserFacingText(sourceRecipe.highlights, fallback.recipe.highlights),
+      shadows: sanitizeUserFacingText(sourceRecipe.shadows, fallback.recipe.shadows),
+      temperature: sanitizeUserFacingText(sourceRecipe.temperature, fallback.recipe.temperature),
+      cropRatio: sanitizeUserFacingText(sourceRecipe.cropRatio, fallback.recipe.cropRatio),
+    },
     verdict: {
       title: sanitizeUserFacingText(sourceVerdict.title, fallbackVerdict.title),
       summary: sanitizeUserFacingText(sourceVerdict.summary, fallbackVerdict.summary),
@@ -169,6 +148,5 @@ export function mergeAiReportWithFallback(candidate: unknown, fallback: Report, 
       result[name] = sanitizeUserFacingText(sourceScoreReasons[name], fallbackScoreReasons[name] ?? fallback[name === '构图' ? 'composition' : name === '光线' ? 'lighting' : name === '色彩' ? 'colour' : name === '叙事' ? 'storytelling' : 'technical']);
       return result;
     }, {} as Record<ScoreName, string>),
-    genreAssessment: normalizeGenreAssessment(source.genreAssessment) ?? fallback.genreAssessment,
   };
 }

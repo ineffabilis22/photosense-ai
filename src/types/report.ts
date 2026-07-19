@@ -2,7 +2,7 @@ export type Medium = '数码摄影' | '胶片摄影';
 
 export type Genre = '街头摄影' | '人像摄影' | '风景摄影' | '建筑摄影' | '静物摄影' | '旅行摄影';
 
-export type SkillLevel = '爱好者水平' | '进阶水平';
+export type SkillLevel = '初学者' | '进阶' | '高级';
 
 export type ScoreName = '构图' | '光线' | '色彩' | '叙事' | '技术完成度';
 
@@ -20,22 +20,6 @@ export type PostProcessingAdviceItem = {
   suggestion: string;
   reason: string;
   expectedEffect: string;
-};
-
-export type PreviewAdjustments = {
-  crop: {
-    ratio: string;
-    anchorX: number;
-    anchorY: number;
-  };
-  global: {
-    exposureEv: number;
-    contrast: number;
-    highlights: number;
-    shadows: number;
-    temperature: number;
-    saturation: number;
-  };
 };
 
 export type ReportVerdict = {
@@ -56,12 +40,6 @@ export type ReviewContext = {
   levelFocus: string;
   genreFocus: string;
   scoringLogic: string;
-};
-
-export type GenreAssessment = {
-  detectedGenre: Genre;
-  confidence: number;
-  reason: string;
 };
 
 export type PhotoSpecificFeedback = {
@@ -93,7 +71,6 @@ export type Report = {
     temperature: string;
     cropRatio: string;
   };
-  previewAdjustments?: PreviewAdjustments;
   verdict?: ReportVerdict;
   reviewContext?: ReviewContext;
   postProcessing?: {
@@ -104,7 +81,6 @@ export type Report = {
   nextShooting?: NextShootingAdvice;
   photoSpecific?: PhotoSpecificFeedback;
   scoreReasons?: Partial<Record<ScoreName, string>>;
-  genreAssessment?: GenreAssessment;
 };
 
 export type HistoryRecord = {

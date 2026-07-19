@@ -14,9 +14,10 @@ OPENAI_RELAY_MODEL=your_vision_model
 PROVIDER_TIMEOUT_MS=60000
 OPENAI_RELAY_TIMEOUT_MS=90000
 OPENAI_RELAY_MAX_TOKENS=3000
-OPENAI_RELAY_TEMPERATURE=0.2
+OPENAI_RELAY_TEMPERATURE=0.45
 ```
 
 服务端也保留 Gemini 和 Anthropic 兼容配置。至少配置一种供应商后，启动服务并访问 `/api/health`，确认 `providerConfigured: true`。
 
 完整启动与排错步骤见 [README.md](./README.md)。请勿把真实 API Key 写入 Git 仓库。
+
