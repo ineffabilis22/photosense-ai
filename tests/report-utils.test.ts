@@ -55,6 +55,11 @@ test('保留有效的模型分数、结论和后期建议', () => {
       crop: { ratio: '4:3', direction: '从右侧收紧', rationale: '去除车灯并保留人物关系。' },
     },
     scoreReasons: { 构图: '主体清楚，但右侧视觉重量偏高。' },
+    genreAssessment: {
+      detectedGenre: '街头摄影',
+      confidence: 0.91,
+      reason: '行人与街道环境共同构成现场关系。',
+    },
   }, fallback, context);
 
   assert.deepEqual(report.scores, { 构图: 61, 光线: 74, 色彩: 82, 叙事: 57, 技术完成度: 69 });
@@ -65,12 +70,18 @@ test('保留有效的模型分数、结论和后期建议', () => {
   assert.equal(report.photoSpecific?.affectedArea, '画面右侧边缘');
   assert.equal(report.photoSpecific?.crop.direction, '从右侧收紧');
   assert.equal(report.scoreReasons?.构图, '主体清楚，但右侧视觉重量偏高。');
+  assert.deepEqual(report.genreAssessment, {
+    detectedGenre: '街头摄影',
+    confidence: 0.91,
+    reason: '行人与街道环境共同构成现场关系。',
+  });
 });
 
 test('字段缺失或包含内部元语言时才使用 fallback', () => {
   const report = mergeAiReportWithFallback({
     verdict: { nextStep: '按高级口径建议优化后入选' },
     scores: { 构图: 130, 光线: 'bad' },
+    genreAssessment: { detectedGenre: '新闻摄影', confidence: 2, reason: '不在支持范围。' },
   }, fallback, context);
 
   assert.equal(report.verdict?.nextStep, '默认动作');
@@ -80,4 +91,5 @@ test('字段缺失或包含内部元语言时才使用 fallback', () => {
   assert.deepEqual(report.reviewContext, context);
   assert.equal(report.photoSpecific?.strength, '默认优点');
   assert.equal(report.scoreReasons?.叙事, '默认叙事依据');
+  assert.equal(report.genreAssessment, undefined);
 });

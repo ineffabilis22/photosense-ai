@@ -151,7 +151,7 @@
                   <h3 id="preview-title">请先上传一张照片</h3>
                 </div>
                 <div class="preview-index">
-                  <span id="metadata-level">初学者</span>
+                  <span id="metadata-level">爱好者水平</span>
                   <span id="metadata-genre">街头摄影</span>
                 </div>
               </div>
@@ -195,15 +195,17 @@
             <p>合并历史浏览、上传管理与时间轴归档。每张卡片代表一次点评记录，便于回看风格变化和追踪训练方向。</p>
           </section>
           <section class="history-toolbar" aria-label="历史记录筛选">
-            <div><span>全部记录</span><strong>7</strong></div>
-            <div><span>本月点评</span><strong>18</strong></div>
-            <div><span>平均评分</span><strong>82</strong></div>
-            <button type="button">管理上传</button>
+            <div><span>全部记录</span><strong>0</strong></div>
+            <div><span>本月点评</span><strong>0</strong></div>
+            <div><span>平均评分</span><strong>--</strong></div>
+            <button type="button" data-page-link="review">开始第一次点评</button>
           </section>
           <section class="history-feed" aria-label="摄影点评历史内容流">
-            <article class="history-card history-tall"><div class="history-thumb history-thumb-1"></div><div class="history-card-body"><div><p class="panel-kicker">街头摄影</p><h2>清晨路口的行人</h2></div><dl><div><dt>评分</dt><dd>82</dd></div><div><dt>日期</dt><dd>2026年5月21日</dd></div></dl><div class="history-tags"><span>构图复盘</span><span>边缘管理</span></div></div></article>
-            <article class="history-card history-medium"><div class="history-thumb history-thumb-2"></div><div class="history-card-body"><div><p class="panel-kicker">人像摄影</p><h2>窗边肖像练习</h2></div><dl><div><dt>评分</dt><dd>76</dd></div><div><dt>日期</dt><dd>2026年5月19日</dd></div></dl><div class="history-tags"><span>肤色</span><span>背景</span></div></div></article>
-            <article class="history-card history-wide"><div class="history-thumb history-thumb-3"></div><div class="history-card-body"><div><p class="panel-kicker">风景摄影</p><h2>海岸黄昏色彩稿</h2></div><dl><div><dt>评分</dt><dd>88</dd></div><div><dt>日期</dt><dd>2026年5月17日</dd></div></dl><div class="history-tags"><span>色温</span><span>层次</span></div></div></article>
+            <div class="empty-report empty-report-state">
+              <p class="eyebrow">暂无历史记录</p>
+              <h2>完成一次 AI 点评后，分析记录会出现在这里。</h2>
+              <a class="primary-link" href="#" data-page-link="review">前往开始点评</a>
+            </div>
           </section>
         </section>
 
@@ -250,12 +252,11 @@
 
     <script>
       const genres = ['街头摄影', '人像摄影', '风景摄影', '建筑摄影', '静物摄影', '旅行摄影', '胶片摄影'];
-      const skillLevels = ['初学者', '进阶', '高级'];
+      const skillLevels = ['爱好者水平', '进阶水平'];
       const scoreNames = ['构图', '光线', '色彩', '叙事', '技术完成度'];
       const skillTooltips = {
-        初学者: '更基础、更易懂，更强调拍摄习惯、取景方式与下一次可以尝试的具体动作。',
-        进阶: '加入更多构图、光线、色彩和画面组织判断，帮助你从“拍到”走向“拍准”。',
-        高级: '更强调叙事、风格、视觉语言与作者意图，反馈会更接近作品集编辑视角。',
+        爱好者水平: '使用日常、易懂的语言，重点说明哪里好、哪里需要调整，以及下一次可以直接尝试的动作。',
+        进阶水平: '允许使用高光、阴影、影调等摄影术语，并进一步解释构图、光线和画面组织问题。',
       };
       const genreGuidance = {
         街头摄影: '街头摄影的力量通常来自时机、人物姿态与现场秩序之间的张力。',
@@ -267,13 +268,12 @@
         胶片摄影: '胶片摄影可以保留颗粒、偏色和不完美，但这些质感需要服务于情绪，而不是替代画面判断。',
       };
       const levelGuidance = {
-        初学者: '建议先把注意力放在一个明确目标上：让主体更清楚、边缘更干净、最亮处更有控制。',
-        进阶: '你已经具备一定画面控制力，可以进一步关注主体分离、边缘管理和局部明暗关系。',
-        高级: '这个阶段的重点不再是单项正确，而是每个视觉决定是否共同指向清晰的作者意图。',
+        爱好者水平: '建议先把注意力放在一个明确目标上：让主体更清楚、画面边缘更干净、最亮处不过分抢眼。',
+        进阶水平: '你已经具备一定画面控制力，可以进一步关注主体分离、边缘管理、高光与阴影层次。',
       };
 
       let selectedGenre = '街头摄影';
-      let selectedLevel = '初学者';
+      let selectedLevel = '爱好者水平';
       let imageUrl = '';
       let reportText = '';
       let timer = null;
@@ -360,7 +360,7 @@
       }
 
       function createReport() {
-        const shift = selectedLevel === '初学者' ? -3 : selectedLevel === '高级' ? 4 : 0;
+        const shift = selectedLevel === '爱好者水平' ? 6 : 0;
         const scores = {
           构图: 78 + shift,
           光线: 74 + shift,
@@ -388,13 +388,15 @@
           '结论：光线方向可读，但中间调还不够集中。说明：高光已能引导视线，暗部需要保留层次。方向：轻微回收高光，并用局部提亮托出主体。';
         const colour =
           '结论：色彩克制，有形成情绪的基础。说明：冷暖关系可以更明确。方向：保护中性色，只让一个关键色承担视觉记忆点。';
-        const storytelling = `结论：画面有瞬间感，但叙事指向还可再清楚。说明：${selectedLevel}阶段应先确定观众读到的第一件事。方向：减少延迟理解的元素，保留必要余味。`;
+        const storytelling = selectedLevel === '爱好者水平'
+          ? '结论：画面有瞬间感，但想表达的重点还可以更清楚。说明：先确定希望观众看到的第一件事。方向：减少让人分心的元素，同时保留必要的环境信息。'
+          : '结论：画面有瞬间感，但叙事指向还可再清楚。说明：需要进一步明确观看顺序。方向：减少延迟理解的元素，保留必要余味。';
         const technical = '结论：技术完成度稳定。说明：清晰度、曝光和整体质感足以支撑点评。方向：继续用局部调整替代大幅全局滤镜。';
         suggestions[0] = '收紧裁切，让主体进入更明确的位置。';
         suggestions[1] = '压低边缘干扰，让视线留在画面内部。';
         suggestions[2] = '局部提亮主体，再决定整体对比度。';
 
-        reportText = `PhotoSense AI 摄影评审报告\n类型：${selectedGenre}\n创作阶段：${selectedLevel}\n\n总体印象\n${overall}\n\n评分\n${scoreNames
+        reportText = `PhotoSense AI 摄影评审报告\n类型：${selectedGenre}\n评价水平：${selectedLevel}\n\n总体印象\n${overall}\n\n评分\n${scoreNames
           .map((name) => `${name}：${scores[name]}/100`)
           .join('\n')}\n\n构图分析\n${composition}\n\n光线分析\n${lighting}\n\n色彩分析\n${colour}\n\n叙事分析\n${storytelling}\n\n技术完成度\n${technical}\n\n三条可执行建议\n${suggestions
           .map((item, index) => `${index + 1}. ${item}`)
@@ -432,7 +434,7 @@
               <article class="diagnostic-overview">
                 <div class="report-title-row"><span class="section-icon"><svg viewBox="0 0 24 24"><path d="M4 12h4l2-5 4 10 2-5h4" /></svg></span><div><p class="panel-kicker">总体判断</p><h3>先建立观看顺序，再保留画面余味</h3></div></div>
                 <p>${overall}</p>
-                <dl><div><dt>摄影风格</dt><dd>${selectedGenre}</dd></div><div><dt>点评口径</dt><dd>${selectedLevel}</dd></div><div><dt>报告日期</dt><dd>${metadataDate.textContent}</dd></div></dl>
+                <dl><div><dt>摄影风格</dt><dd>${selectedGenre}</dd></div><div><dt>评价水平</dt><dd>${selectedLevel}</dd></div><div><dt>报告日期</dt><dd>${metadataDate.textContent}</dd></div></dl>
               </article>
             </section>
             <section class="score-sheet" aria-label="摄影评分">
@@ -552,7 +554,7 @@
         imageUrl = '';
         input.value = '';
         selectedGenre = '街头摄影';
-        selectedLevel = '初学者';
+        selectedLevel = '爱好者水平';
         fileName.textContent = '等待选择影像文件';
         uploadStatus.textContent = '尚未选择文件';
         metadataGenre.textContent = selectedGenre;

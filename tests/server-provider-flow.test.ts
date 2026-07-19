@@ -42,16 +42,21 @@ async function stopChild(child: ReturnType<typeof spawn>) {
 }
 
 test('OpenAI-compatible 完整链路传递新提示词并返回照片针对性报告', { timeout: 15_000 }, async () => {
-  let providerRequest: Record<string, any> | null = null;
+  const providerRequests: Array<Record<string, any>> = [];
   const providerReport = {
     overall: '红伞人物是明确主体，湿润路面提供夜景层次。',
-    scores: { 构图: 78, 光线: 74, 色彩: 84, 叙事: 72, 技术完成度: 76 },
+    scores: { 构图: 92, 光线: 82, 色彩: 70, 叙事: 58, 技术完成度: 10 },
     scoreReasons: {
       构图: '主体清楚，但右侧视觉重量偏高。',
       光线: '夜景层次可读，路面高光略亮。',
       色彩: '红伞形成稳定的色彩记忆点。',
       叙事: '人物动作与街道环境形成现场关系。',
-      技术完成度: '清晰度和曝光足以支撑观看。',
+      技术完成度: '严重失焦使人物动作和环境细节无法可靠辨认。',
+    },
+    genreAssessment: {
+      detectedGenre: '街头摄影',
+      confidence: 0.91,
+      reason: '行人与街道环境共同构成现场关系。',
     },
     composition: '结论：主体清楚。说明：右侧车灯略有干扰。方向：从右侧轻微收紧。',
     lighting: '结论：夜景层次可读。说明：路面高光略亮。方向：轻微回收高光。',
@@ -85,10 +90,23 @@ test('OpenAI-compatible 完整链路传递新提示词并返回照片针对性�
     request.setEncoding('utf8');
     request.on('data', (chunk) => { body += chunk; });
     request.on('end', () => {
-      providerRequest = JSON.parse(body);
+      providerRequests.push(JSON.parse(body));
+      const responseReport = providerRequests.length === 1
+        ? providerReport
+        : {
+            ...providerReport,
+            scores: { 构图: 40, 光线: 35, 色彩: 30, 叙事: 25, 技术完成度: 20 },
+            scoreReasons: {
+              构图: '第二次请求产生了漂移理由。',
+              光线: '第二次请求产生了漂移理由。',
+              色彩: '第二次请求产生了漂移理由。',
+              叙事: '第二次请求产生了漂移理由。',
+              技术完成度: '第二次请求产生了漂移理由。',
+            },
+          };
       response.writeHead(200, { 'Content-Type': 'application/json' });
       response.end(JSON.stringify({
-        choices: [{ message: { content: JSON.stringify(providerReport) } }],
+        choices: [{ message: { content: JSON.stringify(responseReport) } }],
       }));
     });
   });
@@ -119,34 +137,71 @@ test('OpenAI-compatible 完整链路传递新提示词并返回照片针对性�
 
   try {
     await waitForHealth(() => `${stdout}\n${stderr}`);
-    const response = await fetch(`http://127.0.0.1:${appPort}/api/analyze-photo`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        imageDataUrl,
-        fileName: 'street.png',
-        medium: '数码摄影',
-        genre: '街头摄影',
-        skillLevel: '进阶',
-        workTitle: '雨夜红伞',
-      }),
-    });
-    const data = await response.json();
+    async function requestReport(skillLevel: '爱好者水平' | '进阶水平') {
+      const response = await fetch(`http://127.0.0.1:${appPort}/api/analyze-photo`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          imageDataUrl,
+          fileName: 'street.png',
+          medium: '数码摄影',
+          genre: '人像摄影',
+          skillLevel,
+          workTitle: '雨夜红伞',
+        }),
+      });
+      return { response, data: await response.json() };
+    }
+
+    const advancedResult = await requestReport('进阶水平');
+    const hobbyistResult = await requestReport('爱好者水平');
+    const { response, data } = advancedResult;
 
     assert.equal(response.status, 200, `${stdout}\n${stderr}`);
     assert.equal(data.ok, true);
     assert.equal(data.report.photoSpecific.affectedArea, '画面右侧边缘');
     assert.equal(data.report.photoSpecific.crop.direction, '从右侧收紧');
     assert.equal(data.report.scoreReasons.构图, '主体清楚，但右侧视觉重量偏高。');
-    const capturedRequest: any = providerRequest;
-    assert.ok(capturedRequest);
+    assert.deepEqual(data.report.scores, { 构图: 98, 光线: 85, 色彩: 70, 叙事: 55, 技术完成度: 0 });
+    assert.deepEqual(hobbyistResult.data.report.scores, { 构图: 100, 光线: 91, 色彩: 76, 叙事: 61, 技术完成度: 6 });
+    assert.equal(hobbyistResult.data.report.scoreReasons.构图, '主体清楚，但右侧视觉重量偏高。');
+    assert.doesNotMatch(JSON.stringify(hobbyistResult.data.report.scoreReasons), /漂移理由/);
+    for (const scoreName of ['构图', '光线', '色彩', '叙事', '技术完成度']) {
+      assert.ok(hobbyistResult.data.report.scores[scoreName] >= data.report.scores[scoreName]);
+    }
+    assert.match(data.report.lighting, /高光/);
+    assert.doesNotMatch(hobbyistResult.data.report.lighting, /高光|阴影|曝光/);
+    assert.match(hobbyistResult.data.report.lighting, /最亮区域/);
+    assert.doesNotMatch(
+      JSON.stringify(hobbyistResult.data.report),
+      /高光|阴影|中间调|动态范围|宽容度|主体分离|边缘管理|白平衡|曝光|\bEV\b/,
+    );
+    assert.deepEqual(data.report.genreAssessment, {
+      detectedGenre: '街头摄影',
+      confidence: 0.91,
+      reason: '行人与街道环境共同构成现场关系。',
+    });
+    assert.match(data.report.reviewContext.genreFocus, /人像摄影/);
+    assert.equal(providerRequests.length, 2);
+    const capturedRequest: any = providerRequests[0];
+    const hobbyistRequest: any = providerRequests[1];
 
     const content = capturedRequest.messages?.[0]?.content;
     const prompt = content?.find((item: any) => item.type === 'text')?.text ?? '';
     const image = content?.find((item: any) => item.type === 'image_url')?.image_url?.url;
     assert.match(prompt, /"photoSpecific"/);
     assert.match(prompt, /"scoreReasons"/);
+    assert.match(prompt, /"genreAssessment"/);
+    assert.match(prompt, /独立判断最接近的题材/);
+    assert.doesNotMatch(prompt, /分数居中/);
+    assert.doesNotMatch(prompt, /"构图": 78/);
     assert.match(prompt, /affectedArea 只描述/);
+    assert.match(prompt, /可以使用高光、阴影/);
+    assert.match(prompt, /基础视觉分/);
+    const hobbyistPrompt = hobbyistRequest.messages?.[0]?.content?.find((item: any) => item.type === 'text')?.text ?? '';
+    assert.match(hobbyistPrompt, /使用日常语言/);
+    assert.match(hobbyistPrompt, /不直接使用高光、阴影/);
+    assert.match(hobbyistPrompt, /基础视觉分/);
     assert.equal(image, imageDataUrl);
   } finally {
     await stopChild(child);

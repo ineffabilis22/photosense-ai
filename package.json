@@ -14,8 +14,10 @@
     "start": "node server/start.mjs"
   },
   "dependencies": {
+    "html2canvas": "^1.4.1",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react-dom": "^18.3.1",
+    "sharp": "^0.35.3"
   },
   "devDependencies": {
     "@types/jsdom": "^21.1.7",

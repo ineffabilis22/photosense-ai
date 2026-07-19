@@ -13,8 +13,14 @@ PhotoSense AI is a Chinese AI photography critique web app prototype. It helps u
 
 - Main app logic: `src/App.tsx`
 - Main styling: `src/styles.css`
+- Darkroom theme overrides: `src/theme-darkroom.css`
+- Visual direction and guardrails: `VISUAL_STYLE_AGENT.md`
 - Homepage visual assets: `public/home-assets`
 - Static fallback preview: `preview.html`
+
+## Visual Direction Rule
+
+Before changing UI styles, read `VISUAL_STYLE_AGENT.md`. The approved direction is Darkroom Constructivist v1. Preserve its medium-gray fiber background, warm paper reading surfaces, constructivist scale, technical-manual hierarchy, small radii, restrained orange-red accent, and unchanged user photography. Do not reintroduce all-black surfaces, black-and-gold styling, large rounded cards, or widespread pill controls.
 
 ## Editing Guidance
 
@@ -28,11 +34,13 @@ PhotoSense AI is a Chinese AI photography critique web app prototype. It helps u
 
 When editing report generation or report UI, preserve the link between `medium`, `genre`, `skillLevel`, and the resulting report criteria. These selections are not metadata only. They must influence evaluation criteria, scoring emphasis, critique vocabulary, post-processing advice, next shooting advice, and the visible report context. Do not remove or bypass this connection.
 
+`skillLevel` currently supports exactly two user-facing values: `爱好者水平` and `进阶水平`. `爱好者水平` uses plain language and a consistent six-point tolerance adjustment; `进阶水平` uses the neutral base score and may use explained photography terminology. Legacy inputs `初学者`, `进阶`, and `高级` may only appear in compatibility normalization or output-cleaning rules; they must not return as selectable UI values.
+
 ## User-Facing Critique Language Rule
 
 Do not expose internal evaluation metadata as critique content. `reviewContext` explains criteria, but verdict, postProcessing, and nextShooting must read like user-facing photography feedback.
 
-Forbidden in user-facing verdict/advice: 本次评分, 评分侧重, 评价基准, 点评口径, 按初学者/进阶/高级口径, 用户选择, AI, 模型, 建议优化后入选.
+Forbidden in user-facing verdict/advice: 本次评分, 评分侧重, 评价基准, 点评口径, 按爱好者水平/进阶水平口径, legacy 按初学者/进阶/高级口径, 用户选择, AI, 模型, 建议优化后入选.
 
 The selected medium / genre / skillLevel must influence the critique, but should not be mechanically named inside every sentence.
 
