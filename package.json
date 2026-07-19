@@ -14,20 +14,20 @@
     "start": "node server/start.mjs"
   },
   "dependencies": {
-    "html2canvas": "^1.4.1",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1",
-    "sharp": "^0.35.3"
-  },
-  "devDependencies": {
-    "@types/jsdom": "^21.1.7",
     "@types/node": "^25.0.0",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.4",
-    "jsdom": "^26.1.0",
-    "tsx": "^4.20.3",
+    "html2canvas": "^1.4.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "sharp": "^0.35.3",
     "typescript": "^5.7.2",
     "vite": "^6.0.0"
+  },
+  "devDependencies": {
+    "@types/jsdom": "^21.1.7",
+    "jsdom": "^26.1.0",
+    "tsx": "^4.20.3"
   }
 }
