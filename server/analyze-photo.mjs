@@ -1,23 +1,37 @@
 import http from 'node:http';
+import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { hasConfiguredProvider, isHistoryExportEnabled, readBoundedNumber } from './config.mjs';
+import { analyzeImageTone, normalizePreviewRecipe, renderPreviewImage } from './preview-renderer.mjs';
 
 const PORT = Number(process.env.PORT || 8787);
 const OPENAI_RELAY_BASE_URL = process.env.OPENAI_RELAY_BASE_URL?.trim().replace(/\/+$/, '');
 const OPENAI_RELAY_MODEL = process.env.OPENAI_RELAY_MODEL?.trim() || 'gpt-5.4';
+const DEFAULT_REPORT_TEMPERATURE = 0.2;
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
 const GEMINI_RELAY_BASE_URL = process.env.GEMINI_RELAY_BASE_URL?.trim().replace(/\/+$/, '');
 const GEMINI_RELAY_MODEL = process.env.GEMINI_RELAY_MODEL?.trim() || 'gemini-3-pro-preview';
 const ANTHROPIC_RELAY_BASE_URL = process.env.ANTHROPIC_RELAY_BASE_URL?.trim().replace(/\/+$/, '');
 const ANTHROPIC_RELAY_MODEL = process.env.ANTHROPIC_RELAY_MODEL?.trim() || 'claude-3-7-sonnet';
 const MAX_BODY_SIZE = 15 * 1024 * 1024;
-const PROVIDER_TIMEOUT_MS = 60_000;
-const OPENAI_RELAY_TIMEOUT_MS = 90_000;
-const ANTHROPIC_TIMEOUT_MS = 90_000;
+const PROVIDER_TIMEOUT_MS = readBoundedNumber(process.env, 'PROVIDER_TIMEOUT_MS', 60_000, { min: 5_000, max: 180_000, integer: true });
+const OPENAI_RELAY_TIMEOUT_MS = readBoundedNumber(process.env, 'OPENAI_RELAY_TIMEOUT_MS', 90_000, { min: 5_000, max: 180_000, integer: true });
+const OPENAI_RELAY_MAX_TOKENS = readBoundedNumber(process.env, 'OPENAI_RELAY_MAX_TOKENS', 3_000, { min: 500, max: 8_000, integer: true });
+const OPENAI_RELAY_TEMPERATURE = readBoundedNumber(process.env, 'OPENAI_RELAY_TEMPERATURE', DEFAULT_REPORT_TEMPERATURE, { min: 0, max: 1 });
+const ANTHROPIC_TIMEOUT_MS = readBoundedNumber(process.env, 'ANTHROPIC_TIMEOUT_MS', 90_000, { min: 5_000, max: 180_000, integer: true });
+const PREVIEW_RENDER_TIMEOUT_MS = readBoundedNumber(process.env, 'PREVIEW_RENDER_TIMEOUT_MS', 15_000, { min: 1_000, max: 30_000, integer: true });
+const HISTORY_EXPORT_ENABLED = isHistoryExportEnabled(process.env);
 
 const scoreNames = ['构图', '光线', '色彩', '叙事', '技术完成度'];
+const genreNames = ['街头摄影', '人像摄影', '风景摄影', '建筑摄影', '静物摄影', '旅行摄影'];
+const DEFAULT_SKILL_LEVEL = '爱好者水平';
 const EXPORTS_DIR = path.join(process.cwd(), 'exports');
 const HISTORY_EXPORT_PATH = path.join(EXPORTS_DIR, 'photosense_reports_history.json');
+const MAX_HISTORY_RECORDS = 20;
+const MAX_EXPORT_SNAPSHOTS = 20;
+const MAX_BASE_EVALUATION_CACHE_ENTRIES = 50;
+const baseEvaluationCache = new Map();
 
 const mediumEvaluationFocus = {
   数码摄影: '按数码摄影判断时，更重视曝光准确性、高光控制、白平衡、清晰度、噪点控制与后期调整空间。',
@@ -25,10 +39,13 @@ const mediumEvaluationFocus = {
 };
 
 const levelEvaluationFocus = {
-  初学者: '初学者口径下，报告会使用更易懂的语言，重点放在主体清晰、取景边界、曝光控制和一个明确的下一步动作。',
-  进阶: '进阶口径下，报告会加入构图、光线、色彩、主体分离、边缘管理和观看顺序的判断，并解释问题为什么影响画面。',
-  高级: '高级口径下，报告更关注作者意图、视觉语言、叙事张力、风格一致性和作品集筛选价值，判断会更严格。',
+  爱好者水平: '选择“爱好者水平”时，报告使用日常、易懂的语言，重点说明主体是否清楚、画面边缘是否干净，以及下一次可以直接尝试的动作。',
+  进阶水平: '选择“进阶水平”时，报告可以使用高光、阴影、影调、主体分离等摄影术语，并解释这些问题为什么影响画面。',
 };
+
+function normalizeSkillLevel(value) {
+  return value === '进阶水平' || value === '进阶' || value === '高级' ? '进阶水平' : DEFAULT_SKILL_LEVEL;
+}
 
 const genreEvaluationFocus = {
   街头摄影: '街头摄影重点观察决定性瞬间、人物姿态、主体与环境关系，以及秩序和混乱之间的现场张力。',
@@ -39,7 +56,7 @@ const genreEvaluationFocus = {
   旅行摄影: '旅行摄影重点观察地方感、人的痕迹、叙事上下文，以及记录性和作品性的平衡，避免流于明信片式描述。',
 };
 
-function getReviewContext(medium = '数码摄影', genre = '街头摄影', skillLevel = '初学者') {
+function getReviewContext(medium = '数码摄影', genre = '街头摄影', skillLevel = DEFAULT_SKILL_LEVEL) {
   const scoringByGenre = {
     街头摄影: '本次评分更重视时机、现场张力、观看顺序和人物与环境关系是否共同成立。',
     人像摄影: '本次评分更重视人物状态、情绪可信度、肤色与背景控制是否共同服务主体。',
@@ -51,7 +68,7 @@ function getReviewContext(medium = '数码摄影', genre = '街头摄影', skill
 
   return {
     mediumFocus: mediumEvaluationFocus[medium] || mediumEvaluationFocus['数码摄影'],
-    levelFocus: levelEvaluationFocus[skillLevel] || levelEvaluationFocus['初学者'],
+    levelFocus: levelEvaluationFocus[skillLevel] || levelEvaluationFocus[DEFAULT_SKILL_LEVEL],
     genreFocus: genreEvaluationFocus[genre] || genreEvaluationFocus['街头摄影'],
     scoringLogic: scoringByGenre[genre] || scoringByGenre['街头摄影'],
   };
@@ -59,7 +76,7 @@ function getReviewContext(medium = '数码摄影', genre = '街头摄影', skill
 
 function setCorsHeaders(response) {
   response.setHeader('Access-Control-Allow-Origin', '*');
-  response.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  response.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, POST, OPTIONS');
   response.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 }
 
@@ -92,6 +109,23 @@ function readJsonBody(request) {
 
     request.on('error', reject);
   });
+}
+
+async function renderPreviewWithTimeout(input) {
+  let timeoutId;
+  const timeout = new Promise((_, reject) => {
+    timeoutId = setTimeout(() => {
+      const error = new Error('生成后期预览超时，请稍后重试。');
+      error.statusCode = 504;
+      reject(error);
+    }, PREVIEW_RENDER_TIMEOUT_MS);
+  });
+
+  try {
+    return await Promise.race([renderPreviewImage(input), timeout]);
+  } finally {
+    clearTimeout(timeoutId);
+  }
 }
 
 function parseImageDataUrl(imageDataUrl) {
@@ -434,8 +468,13 @@ function normalizeScore(value, fallback) {
     return fallback;
   }
 
-  const percentageScore = numberValue > 0 && numberValue <= 10 ? numberValue * 10 : numberValue;
-  return Math.max(0, Math.min(100, Math.round(percentageScore)));
+  return Math.max(0, Math.min(100, Math.round(numberValue)));
+}
+
+function isValidScore(value) {
+  if (value === null || value === '' || typeof value === 'boolean') return false;
+  const numberValue = Number(value);
+  return Number.isFinite(numberValue) && numberValue >= 0 && numberValue <= 100;
 }
 
 function normalizeText(value, fallback) {
@@ -450,6 +489,8 @@ const internalMetaPhrases = [
   '按初学者口径',
   '按进阶口径',
   '按高级口径',
+  '按爱好者水平口径',
+  '按进阶水平口径',
   '用户选择',
   'AI',
   '模型',
@@ -477,6 +518,49 @@ function sanitizeUserFacingText(value, fallback) {
   return text;
 }
 
+const hobbyistLanguageReplacements = [
+  [' EV', ''],
+  ['动态范围', '亮暗细节范围'],
+  ['主体分离', '主体与背景的区分'],
+  ['边缘管理', '画面边缘整理'],
+  ['局部对比', '局部明暗差异'],
+  ['中间调', '中等亮度区域'],
+  ['白平衡', '颜色冷暖是否自然'],
+  ['宽容度', '亮暗细节保留能力'],
+  ['饱和度', '颜色浓淡'],
+  ['高光区域', '最亮区域'],
+  ['高光细节', '亮部细节'],
+  ['阴影区域', '较暗区域'],
+  ['阴影细节', '暗部细节'],
+  ['高光', '最亮区域'],
+  ['阴影', '较暗区域'],
+  ['影调', '明暗层次'],
+  ['色温', '画面冷暖'],
+  ['锐度', '清晰程度'],
+  ['噪点', '画面杂点'],
+  ['蒙版', '局部调整'],
+  ['曝光', '整体明暗'],
+];
+
+function simplifyHobbyistValue(value) {
+  if (typeof value === 'string') {
+    return hobbyistLanguageReplacements.reduce(
+      (text, [technicalTerm, plainTerm]) => text.split(technicalTerm).join(plainTerm),
+      value,
+    );
+  }
+
+  if (Array.isArray(value)) {
+    return value.map(simplifyHobbyistValue);
+  }
+
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, simplifyHobbyistValue(item)]));
+  }
+
+  return value;
+}
+
 function getScoreExtremes(scores = {}) {
   const entries = scoreNames.map((name) => ({ name, score: normalizeScore(scores[name], 70) }));
   const strongest = entries.reduce((best, item) => (item.score > best.score ? item : best), entries[0]);
@@ -485,89 +569,100 @@ function getScoreExtremes(scores = {}) {
   return { strongest, weakest };
 }
 
-function getSafeVerdictTitle(genre = '街头摄影', scores = {}, skillLevel = '进阶') {
+function getSafeVerdictTitle(genre = '街头摄影', scores = {}, skillLevel = '进阶水平') {
   const { strongest, weakest } = getScoreExtremes(scores);
   const skillTone = {
-    初学者: {
+    爱好者水平: {
       构图: '画面氛围可读，取景可再集中',
       光线: '画面基础清楚，光线还可整理',
       色彩: '色彩印象明确，关系可再统一',
       叙事: '现场线索已经出现，故事可再明确',
       技术完成度: '画面基本成立，细节可再稳住',
     },
-    进阶: {
+    进阶水平: {
       构图: '结构已经成立，重心仍可压实',
       光线: '光线有气氛，层次仍可强化',
       色彩: '色彩氛围完整，关系还可明确',
       叙事: '现场感已经出现，观看路径还可优化',
       技术完成度: '画面可读，细节仍需整理',
     },
-    高级: {
-      构图: '空间关系成立，但取舍仍偏松',
-      光线: '光线方向可读，层次还不够精确',
-      色彩: '色彩气氛成立，表达仍可更克制',
-      叙事: '气氛已经建立，叙事张力仍不足',
-      技术完成度: '完成度具备基础，细节还需推敲',
-    },
   };
   const genreFallback = {
-    街头摄影: skillLevel === '高级' ? '现场气息可见，瞬间关系仍需更强' : '现场感已经出现，观看路径还可优化',
-    人像摄影: skillLevel === '高级' ? '人物状态成立，情绪深度仍可推进' : '人物状态自然，背景关系仍可收紧',
-    风景摄影: skillLevel === '高级' ? '气氛成立，但空间层次仍可深化' : '光线有气氛，层次仍可强化',
-    建筑摄影: skillLevel === '高级' ? '结构秩序可见，空间取舍仍需更准' : '空间秩序成立，细节仍需整理',
-    静物摄影: skillLevel === '高级' ? '物件关系成立，质感表达仍可深化' : '物件关系成立，质感还可加强',
-    旅行摄影: skillLevel === '高级' ? '地方气息可见，叙事仍需更具体' : '地方气息可见，叙事还可聚焦',
+    街头摄影: '现场感已经出现，观看路径还可优化',
+    人像摄影: '人物状态自然，背景关系仍可收紧',
+    风景摄影: '光线有气氛，层次仍可强化',
+    建筑摄影: '空间秩序成立，细节仍需整理',
+    静物摄影: '物件关系成立，质感还可加强',
+    旅行摄影: '地方气息可见，叙事还可聚焦',
   };
 
-  return skillTone[skillLevel]?.[weakest.name] || genreFallback[genre] || skillTone.进阶[weakest.name] || '画面基础成立，重心仍可收紧';
+  return skillTone[skillLevel]?.[weakest.name] || genreFallback[genre] || skillTone.进阶水平[weakest.name] || '画面基础成立，重心仍可收紧';
 }
 
-function getSkillScoreShift(skillLevel = '进阶') {
-  if (skillLevel === '初学者') return 7;
-  if (skillLevel === '高级') return -11;
-  return -1;
-}
-
-function calibrateScoresBySkillLevel(scores = {}, skillLevel = '进阶') {
+function expandScoreRange(scores = {}) {
   const rawEntries = scoreNames.map((name) => ({ name, score: normalizeScore(scores[name], 70) }));
-  const rawAverage = Math.round(rawEntries.reduce((sum, item) => sum + item.score, 0) / rawEntries.length);
-  const shift = getSkillScoreShift(skillLevel);
-  const sorted = [...rawEntries].sort((a, b) => b.score - a.score);
-  const strongestName = sorted[0]?.name;
-  const weakestName = sorted[sorted.length - 1]?.name;
-  const calibrated = {};
-
-  for (const item of rawEntries) {
-    let value = item.score + shift;
-
-    if (rawEntries.every((entry) => Math.abs(entry.score - rawEntries[0].score) <= 4)) {
-      if (item.name === strongestName) value += 3;
-      if (item.name === weakestName) value -= 5;
-    }
-
-    if (skillLevel === '初学者') {
-      value = Math.max(55, Math.min(93, value));
-    } else if (skillLevel === '高级') {
-      const highCap = rawAverage >= 88 ? 86 : rawAverage >= 82 ? 80 : 76;
-      value = Math.max(35, Math.min(highCap, value));
-    } else {
-      const midCap = rawAverage >= 88 ? 90 : 84;
-      value = Math.max(45, Math.min(midCap, value));
-    }
-
-    calibrated[item.name] = Math.max(0, Math.min(100, Math.round(value)));
-  }
+  const calibrated = Object.fromEntries(rawEntries.map(({ name, score }) => {
+    // Vision models tend to cluster ratings near 70. This monotonic transform
+    // widens the usable scale without changing the ordering of dimensions.
+    const expandedScore = 70 + (score - 70) * 1.25;
+    return [name, Math.max(0, Math.min(100, Math.round(expandedScore)))];
+  }));
 
   console.log('[PhotoSense AI] raw model scores:', JSON.stringify(Object.fromEntries(rawEntries.map((item) => [item.name, item.score]))));
-  console.log('[PhotoSense AI] skillLevel:', skillLevel);
-  console.log('[PhotoSense AI] calibrated scores:', JSON.stringify(calibrated));
+  console.log('[PhotoSense AI] range-expanded scores:', JSON.stringify(calibrated));
   console.log('[PhotoSense AI] final overall score:', Math.round(scoreNames.reduce((sum, name) => sum + calibrated[name], 0) / scoreNames.length));
 
   return calibrated;
 }
 
-function getFallbackScores(medium = '数码摄影', genre = '街头摄影', skillLevel = '初学者') {
-  const skillShift = skillLevel === '初学者' ? 6 : skillLevel === '高级' ? -8 : 0;
+function calibrateScoresForSkill(scores = {}, skillLevel = DEFAULT_SKILL_LEVEL) {
+  const levelShift = skillLevel === '爱好者水平' ? 6 : 0;
+  const calibrated = Object.fromEntries(scoreNames.map((name) => [
+    name,
+    Math.max(0, Math.min(100, normalizeScore(scores[name], 70) + levelShift)),
+  ]));
+
+  console.log('[PhotoSense AI] level-calibrated scores:', JSON.stringify(calibrated));
+  return calibrated;
+}
+
+function getStableBaseEvaluation({ imageDataUrl, medium, genre, scores, scoreReasons }) {
+  const cacheKey = createHash('sha256')
+    .update(`${medium}\n${genre}\n`)
+    .update(imageDataUrl)
+    .digest('hex');
+  const cachedEvaluation = baseEvaluationCache.get(cacheKey);
+
+  if (cachedEvaluation) {
+    baseEvaluationCache.delete(cacheKey);
+    baseEvaluationCache.set(cacheKey, cachedEvaluation);
+    console.log('[PhotoSense AI] reused cached base evaluation for matching photo context');
+    return {
+      scores: { ...cachedEvaluation.scores },
+      scoreReasons: { ...cachedEvaluation.scoreReasons },
+    };
+  }
+
+  const normalizedScores = Object.fromEntries(scoreNames.map((name) => [name, normalizeScore(scores[name], 70)]));
+  const normalizedReasons = Object.fromEntries(scoreNames.map((name) => [
+    name,
+    typeof scoreReasons?.[name] === 'string' ? scoreReasons[name] : '',
+  ]));
+  const normalizedEvaluation = { scores: normalizedScores, scoreReasons: normalizedReasons };
+  baseEvaluationCache.set(cacheKey, normalizedEvaluation);
+
+  if (baseEvaluationCache.size > MAX_BASE_EVALUATION_CACHE_ENTRIES) {
+    baseEvaluationCache.delete(baseEvaluationCache.keys().next().value);
+  }
+
+  return {
+    scores: { ...normalizedScores },
+    scoreReasons: { ...normalizedReasons },
+  };
+}
+
+function getFallbackScores(medium = '数码摄影', genre = '街头摄影', skillLevel = DEFAULT_SKILL_LEVEL) {
+  const skillShift = skillLevel === '爱好者水平' ? 6 : 0;
   const baseScores = {
     构图: 72,
     光线: 64,
@@ -657,6 +752,42 @@ function normalizeReviewContext(value, fallback) {
   };
 }
 
+function normalizePhotoSpecific(value, fallback) {
+  return {
+    strength: sanitizeUserFacingText(value?.strength, fallback.strength),
+    priorityIssue: sanitizeUserFacingText(value?.priorityIssue, fallback.priorityIssue),
+    affectedArea: sanitizeUserFacingText(value?.affectedArea, fallback.affectedArea),
+    nextAction: sanitizeUserFacingText(value?.nextAction, fallback.nextAction),
+    crop: {
+      ratio: sanitizeUserFacingText(value?.crop?.ratio, fallback.crop.ratio),
+      direction: sanitizeUserFacingText(value?.crop?.direction, fallback.crop.direction),
+      rationale: sanitizeUserFacingText(value?.crop?.rationale, fallback.crop.rationale),
+    },
+  };
+}
+
+function normalizeScoreReasons(value, fallback) {
+  return scoreNames.reduce((result, name) => {
+    result[name] = sanitizeUserFacingText(value?.[name], fallback[name]);
+    return result;
+  }, {});
+}
+
+function normalizeGenreAssessment(value) {
+  const detectedGenre = genreNames.includes(value?.detectedGenre) ? value.detectedGenre : '';
+  const rawConfidence = Number(value?.confidence);
+  const reason = typeof value?.reason === 'string' ? value.reason.trim().slice(0, 160) : '';
+
+  if (!detectedGenre || !Number.isFinite(rawConfidence) || !reason) return undefined;
+
+  const confidence = rawConfidence > 1 && rawConfidence <= 100 ? rawConfidence / 100 : rawConfidence;
+  return {
+    detectedGenre,
+    confidence: Math.max(0, Math.min(1, confidence)),
+    reason,
+  };
+}
+
 function normalizeReport(report, { genre, skillLevel, medium }) {
   const fallbackReviewContext = getReviewContext(medium, genre, skillLevel);
   const fallbackScores = getFallbackScores(medium, genre, skillLevel);
@@ -699,12 +830,12 @@ function normalizeReport(report, { genre, skillLevel, medium }) {
     technical: '结论：技术完成度可以支撑复盘。说明：清晰度与曝光仍有优化空间。方向：使用轻量后期而非重滤镜。',
     suggestions: ['明确主体位置。', '检查画面边缘干扰。', '用局部调整强化观看顺序。'],
     recipe: {
-      exposure: '+0.20',
-      contrast: '+10',
-      highlights: '-15',
-      shadows: '+12',
-      temperature: medium === '胶片摄影' ? '+4 偏暖' : '+2 偏暖',
-      cropRatio: genre === '人像摄影' ? '4:5 竖幅' : '3:2 编辑裁切',
+      exposure: '0',
+      contrast: '0',
+      highlights: '0',
+      shadows: '0',
+      temperature: '0',
+      cropRatio: '保持原比例',
     },
     verdict: {
       title: getSafeVerdictTitle(genre, fallbackScores, skillLevel),
@@ -712,7 +843,7 @@ function normalizeReport(report, { genre, skillLevel, medium }) {
       mainIssue: medium === '胶片摄影'
         ? '颗粒、色偏和现场气氛还需要更明确地共同指向主题。'
         : '曝光层次、边缘信息和主体关系还可以更集中。',
-      nextStep: skillLevel === '高级' ? '先判断最有作品集价值的视觉关系，再决定是否保留更多环境信息。' : '优先做轻微裁切和局部影调整理，让主体更快被看见。',
+      nextStep: skillLevel === '进阶水平' ? '先确认主体与环境的观看关系，再通过轻微裁切和局部影调整理强化层次。' : '先减少画面里最分散注意力的部分，让主体更快被看见。',
       tags: ['观看路径', '局部层次', '信息取舍'],
     },
     postProcessing: {
@@ -727,7 +858,7 @@ function normalizeReport(report, { genre, skillLevel, medium }) {
         expectedEffect: '画面重点更稳定，明暗关系更自然。',
       },
       masking: {
-        suggestion: skillLevel === '高级' ? '仅做轻微局部整理，不建议明显改变原有光线性格。' : '用柔和局部调整轻微提亮主体，压低分散视线的亮点。',
+        suggestion: skillLevel === '进阶水平' ? '用柔和蒙版轻微提亮主体，并压低分散视线的高光。' : '轻微提亮主体，再压低分散注意力的亮处。',
         reason: '局部提亮或压暗比全局调整更适合保持现场感。',
         expectedEffect: '视线停留位置更明确，照片仍保持自然质感。',
       },
@@ -736,15 +867,38 @@ function normalizeReport(report, { genre, skillLevel, medium }) {
       summary: fallbackNextShooting.summary,
       items: fallbackNextShooting.items,
     },
+    photoSpecific: {
+      strength: genre === '建筑摄影' ? '结构线与空间层次已经形成清楚秩序。' : genre === '人像摄影' ? '人物状态和环境气氛已经具备可读关系。' : '主体与现场环境已经形成可辨认的视觉关系。',
+      priorityIssue: genre === '建筑摄影' ? '边缘线条仍会分散空间重心。' : '次要亮点和边缘信息减慢了主体被看见的速度。',
+      affectedArea: genre === '人像摄影' ? '人物轮廓附近与背景亮点区域' : genre === '风景摄影' ? '前景入口与远处高光区域' : '主体周围与画面边缘',
+      nextAction: '先处理最分散视线的一处边缘信息，再判断是否需要整体调整。',
+      crop: {
+        ratio: genre === '人像摄影' ? '4:5' : genre === '建筑摄影' ? '5:4' : '3:2',
+        direction: genre === '人像摄影' ? '从背景较杂的一侧轻微收紧' : '从干扰较明显的边缘轻微收紧',
+        rationale: '保留主体与环境关系，只减少延迟观看的次要信息。',
+      },
+    },
+    scoreReasons: {
+      构图: '主体位置可读，但边缘信息仍影响画面重心。',
+      光线: '光线方向明确，中间调与高光层次仍可更集中。',
+      色彩: '关键色能够建立气氛，整体关系保持克制。',
+      叙事: '现场线索存在，但第一观看信息还可以更明确。',
+      技术完成度: medium === '胶片摄影' ? '颗粒与色偏能够参与气氛表达，曝光仍有整理空间。' : '清晰度与曝光足以支撑观看，局部细节仍可优化。',
+    },
     reviewContext: fallbackReviewContext,
   };
 
   const sourceScores = report?.scores || {};
+  if (!scoreNames.every((name) => isValidScore(sourceScores[name]))) {
+    const error = new Error('AI 返回的五维评分不完整或超出 0-100 范围，请重试。');
+    error.statusCode = 502;
+    throw error;
+  }
   const rawNormalizedScores = scoreNames.reduce((result, name) => {
     result[name] = normalizeScore(sourceScores[name], fallback.scores[name]);
     return result;
   }, {});
-  const scores = calibrateScoresBySkillLevel(rawNormalizedScores, skillLevel);
+  const scores = expandScoreRange(rawNormalizedScores);
   fallback.scores = scores;
   fallback.verdict = {
     ...fallback.verdict,
@@ -760,8 +914,16 @@ function normalizeReport(report, { genre, skillLevel, medium }) {
   }
 
   const sourceRecipe = report?.recipe || {};
+  const recipe = {
+    exposure: normalizeText(sourceRecipe.exposure, fallback.recipe.exposure),
+    contrast: normalizeText(sourceRecipe.contrast, fallback.recipe.contrast),
+    highlights: normalizeText(sourceRecipe.highlights, fallback.recipe.highlights),
+    shadows: normalizeText(sourceRecipe.shadows, fallback.recipe.shadows),
+    temperature: normalizeText(sourceRecipe.temperature, fallback.recipe.temperature),
+    cropRatio: normalizeText(sourceRecipe.cropRatio, fallback.recipe.cropRatio),
+  };
 
-  return {
+  const normalizedReport = {
     overall: normalizeText(report?.overall, fallback.overall),
     scores,
     composition: normalizeText(report?.composition, fallback.composition),
@@ -770,60 +932,83 @@ function normalizeReport(report, { genre, skillLevel, medium }) {
     storytelling: normalizeText(report?.storytelling, fallback.storytelling),
     technical: normalizeText(report?.technical, fallback.technical),
     suggestions: sourceSuggestions,
-    recipe: {
-      exposure: normalizeText(sourceRecipe.exposure, fallback.recipe.exposure),
-      contrast: normalizeText(sourceRecipe.contrast, fallback.recipe.contrast),
-      highlights: normalizeText(sourceRecipe.highlights, fallback.recipe.highlights),
-      shadows: normalizeText(sourceRecipe.shadows, fallback.recipe.shadows),
-      temperature: normalizeText(sourceRecipe.temperature, fallback.recipe.temperature),
-      cropRatio: normalizeText(sourceRecipe.cropRatio, fallback.recipe.cropRatio),
-    },
+    recipe,
+    previewAdjustments: normalizePreviewRecipe(report?.previewAdjustments, recipe),
     verdict: normalizeVerdict(report?.verdict, fallback.verdict),
     reviewContext: normalizeReviewContext(report?.reviewContext, fallback.reviewContext),
     postProcessing: normalizePostProcessing(report?.postProcessing, fallback.postProcessing),
     nextShooting: normalizeNextShooting(report?.nextShooting, fallback.nextShooting),
+    photoSpecific: normalizePhotoSpecific(report?.photoSpecific, fallback.photoSpecific),
+    scoreReasons: normalizeScoreReasons(report?.scoreReasons, fallback.scoreReasons),
+    genreAssessment: normalizeGenreAssessment(report?.genreAssessment),
   };
+
+  return normalizedReport;
 }
 
-function createReportPrompt({ medium = '数码摄影', genre = '街头摄影', skillLevel = '初学者', fileName = '', workTitle = '', title = '' }) {
+function createReportPrompt({ medium = '数码摄影', genre = '街头摄影', skillLevel = DEFAULT_SKILL_LEVEL, fileName = '', workTitle = '', title = '', toneProfile }) {
   const selectedReviewContext = getReviewContext(medium, genre, skillLevel);
   const skillStrictness = {
-    初学者: '更宽容、更教学化；普通可读照片可以得到较高鼓励分，建议要简单明确。',
-    进阶: '正常摄影点评标准；指出具体优缺点，分数居中，不要过度鼓励。',
-    高级: '作品集/编辑评审标准；更严格，普通照片不要轻易超过 80 分，建议更偏表达完成度。',
-  }[skillLevel] || '正常摄影点评标准。';
+    爱好者水平: '面向普通摄影爱好者；建议简单明确，基础分仍按统一视觉证据判断，宽容分由后端统一校准。',
+    进阶水平: '面向具备一定经验的摄影爱好者；可深入解释具体优缺点，基础分仍按统一视觉证据判断。',
+  }[skillLevel] || '按统一视觉证据判断。';
+  const languageStyle = skillLevel === '爱好者水平'
+    ? '使用日常语言，不直接使用高光、阴影、中间调、动态范围、宽容度、主体分离、边缘管理等术语；改写成最亮处、较暗处、亮暗细节、主体是否突出、画面边缘是否杂乱等容易理解的说法。'
+    : '可以使用高光、阴影、中间调、动态范围、白平衡、主体分离、边缘管理等摄影术语，但必须结合照片中的可见证据解释其影响。';
+  const measuredAdjustments = toneProfile?.adjustments ?? {
+    crop: { ratio: 'original', anchorX: 0.5, anchorY: 0.5 },
+    global: { exposureEv: 0, contrast: 0, highlights: 0, shadows: 0, temperature: 0, saturation: 0 },
+  };
+  const toneMeasurement = toneProfile
+    ? `- 亮度 P05/P50/P95：${Math.round(toneProfile.metrics.p05 * 100)} / ${Math.round(toneProfile.metrics.p50 * 100)} / ${Math.round(toneProfile.metrics.p95 * 100)}
+- 暗部/高光剪切比例：${(toneProfile.metrics.shadowClipRatio * 100).toFixed(1)}% / ${(toneProfile.metrics.highlightClipRatio * 100).toFixed(1)}%
+- 有效明暗跨度：${Math.round(toneProfile.metrics.dynamicRange * 100)}
+- 后端测量得到的全局参数：${JSON.stringify(measuredAdjustments.global)}`
+    : '- 未获得可靠影调测量；previewAdjustments 必须保持中性。';
 
   return `你是 PhotoSense AI 的中文摄影导师。请根据上传照片生成一份简洁、具体、可执行的摄影点评报告。
 
-用户选择：
+用户提供的评价设置（不等于题材识别结论）：
 - 文件名：${fileName || '未命名照片'}
 - 作品标题：${workTitle || title || '未填写'}
 - 影像介质：${medium}
 - 摄影题材：${genre}
-- 点评口径：${skillLevel}
+- 评价水平：${skillLevel}
 
 评价上下文：
 - 影像介质标准：${selectedReviewContext.mediumFocus}
-- 点评口径标准：${selectedReviewContext.levelFocus}
+- 评价水平标准：${selectedReviewContext.levelFocus}
 - 题材标准：${selectedReviewContext.genreFocus}
 - 评分侧重：${selectedReviewContext.scoringLogic}
 - 严格度：${skillStrictness}
+- 语言方式：${languageStyle}
+
+后端影调测量（数值 0-100，参数已按照片直方图计算）：
+${toneMeasurement}
 
 必须遵守：
 1. 只返回一个合法 JSON object。不要 Markdown，不要解释，不要代码围栏。第一个字符必须是 {，最后一个字符必须是 }。
 2. 所有字符串必须用双引号。不要尾随逗号。不要在字符串里写未转义换行。
 3. 文本要短。verdict.title 8-22 个汉字；summary 1-2 句；每个建议字段尽量不超过 45 个汉字。
 4. verdict、postProcessing、nextShooting 必须像给用户看的摄影点评，不要像系统说明。
-5. 这些词不得出现在 verdict、postProcessing、nextShooting 中：本次评分、评分侧重、评价基准、点评口径、按初学者口径、按进阶口径、按高级口径、用户选择、AI、模型、建议优化后入选。
+5. 这些词不得出现在 verdict、postProcessing、nextShooting 中：本次评分、评分侧重、评价基准、点评口径、按初学者口径、按进阶口径、按高级口径、按爱好者水平口径、按进阶水平口径、用户选择、AI、模型、建议优化后入选。
 6. reviewContext 可以解释评价标准；但不要把 reviewContext 句子复制到 verdict.summary。
 7. 不要使用“xx摄影的画面基础成立，仍需按xx口径收紧判断”这类模板句。
-8. 不要编造相机参数、地名、精确坐标或框选区域。
+8. 不要编造相机参数、地名、精确坐标或框选区域。affectedArea 只描述“左侧边缘、人物轮廓附近、天空高光”等可见区域。
+9. photoSpecific 必须引用这张照片里真正可见的主体、背景、线条、亮点、颜色或空间关系；看不清时写“无法可靠判断”，不要猜测。
+10. scoreReasons 必须分别解释五项分数对应的视觉证据，不能只是重复分数等级，也不要在文案中复述具体数字。
+11. previewAdjustments 必须逐项使用上方“后端测量得到的全局参数”，不要复制固定示例，也不要自行换成另一组通用数值。预览固定保留完整画幅，crop 必须使用 original。
+12. postProcessing.tone 的建议、理由和预期效果必须解释同一组参数：负高光表示回收高光，正阴影表示打开暗部，曝光正负方向不得与文字矛盾。
+13. 先根据照片可见内容独立判断最接近的题材，再对照用户选择；不得为了迎合用户选择而重复同一题材。混合或边界题材应降低 confidence。
+14. 所有面向用户的文字必须遵守上方“语言方式”；评价水平只控制语言深浅，不得直接影响模型给出的基础分。
 
 评分规则：
-- scores 必须是 0-100 整数。
+- scores 必须包含五项 0-100 整数；genreAssessment 必须包含 detectedGenre、confidence 和 reason。
 - 90-100：非常出色或作品集级别；80-89：强但仍可改进；70-79：不错但限制明显；60-69：普通或明显受限；45-59：偏弱但有可用部分；45 以下：严重问题。
-- 不要全部集中到 75/78/80。若有明显强弱项，维度之间可以相差 10-20 分。
-- 同一张普通照片在初学者下应更宽容，进阶居中，高级更严格。高级口径下普通照片不要轻易超过 80。
+- 先依据可见证据逐项定级，再填写数值；不要默认落在 60-80，也不要为了显得稳妥而向 70 分靠拢。
+- 若存在严重失焦、曝光失败、主体关系混乱或题材核心完全不成立，对应维度应低于 45；若完成度确实达到作品集水平，对应维度可以高于 90。
+- 不要把五项都写成相近分数。若有明显强弱项，维度之间可以相差 10-25 分。
+- scores 必须是与评价水平无关的基础视觉分；只依据照片证据评分，不要因为选择爱好者或进阶而自行加减分。爱好者的宽容校准由后端统一完成。
 
 题材判断要点：
 - 街头摄影：时机、人物姿态、主体与环境关系、现场秩序与张力。
@@ -854,26 +1039,51 @@ function createReportPrompt({ medium = '数码摄影', genre = '街头摄影', s
   },
   "reviewContext": {
     "mediumFocus": "影像介质如何影响评价",
-    "levelFocus": "点评口径如何影响评价",
+    "levelFocus": "评价水平如何影响评价",
     "genreFocus": "题材判断标准",
     "scoringLogic": "评分最重视什么"
   },
-  "scores": {"构图": 78, "光线": 72, "色彩": 80, "叙事": 66, "技术完成度": 75},
+  "genreAssessment": {
+    "detectedGenre": null,
+    "confidence": null,
+    "reason": null
+  },
+  "scores": {"构图": null, "光线": null, "色彩": null, "叙事": null, "技术完成度": null},
   "composition": "结论：...。说明：...。方向：...。",
   "lighting": "结论：...。说明：...。方向：...。",
   "colour": "结论：...。说明：...。方向：...。",
   "storytelling": "结论：...。说明：...。方向：...。",
   "technical": "结论：...。说明：...。方向：...。",
   "suggestions": ["建议1", "建议2", "建议3"],
+  "previewAdjustments": {
+    "crop": {"ratio": "original", "anchorX": 0.5, "anchorY": 0.5},
+    "global": ${JSON.stringify(measuredAdjustments.global)}
+  },
+  "photoSpecific": {
+    "strength": "这张照片最值得保留的具体优点",
+    "priorityIssue": "最优先解决的一个可见问题",
+    "affectedArea": "问题所在的可见画面区域",
+    "nextAction": "可以立即执行的一步",
+    "crop": {"ratio": "比例或不建议裁剪", "direction": "裁剪方向", "rationale": "为什么这样裁剪"}
+  },
+  "scoreReasons": {
+    "构图": "构图评分依据",
+    "光线": "光线评分依据",
+    "色彩": "色彩评分依据",
+    "叙事": "叙事评分依据",
+    "技术完成度": "技术完成度评分依据"
+  },
   "postProcessing": {
     "crop": {"suggestion": "裁剪建议", "reason": "理由", "expectedEffect": "预期效果"},
     "tone": {"suggestion": "影调建议", "reason": "理由", "expectedEffect": "预期效果"},
     "masking": {"suggestion": "蒙版建议", "reason": "理由", "expectedEffect": "预期效果"}
   },
   "nextShooting": {"summary": "下次拍摄总建议", "items": ["行动1", "行动2", "行动3"]}
-}`;
 }
-async function createNativeGeminiReport({ imageDataUrl, medium, genre, skillLevel, fileName, workTitle, title }) {
+
+注意：scores 中的 null 只是结构占位，返回前必须全部替换为 0-100 整数。genreAssessment 的 null 也必须替换：detectedGenre 只能是六种题材之一，confidence 是 0-1 数字，reason 只引用可见线索。`;
+}
+async function createNativeGeminiReport({ imageDataUrl, medium, genre, skillLevel, fileName, workTitle, title, toneProfile }) {
   const apiKey = process.env.GEMINI_API_KEY;
 
   if (!apiKey) {
@@ -883,7 +1093,7 @@ async function createNativeGeminiReport({ imageDataUrl, medium, genre, skillLeve
   }
 
   const { mimeType, base64Data } = parseImageDataUrl(imageDataUrl);
-  const prompt = createReportPrompt({ medium, genre, skillLevel, fileName, workTitle, title });
+  const prompt = createReportPrompt({ medium, genre, skillLevel, fileName, workTitle, title, toneProfile });
 
   console.log('[PhotoSense AI] provider mode: native-gemini');
   console.log('[PhotoSense AI] base URL: https://generativelanguage.googleapis.com/v1beta');
@@ -912,7 +1122,7 @@ async function createNativeGeminiReport({ imageDataUrl, medium, genre, skillLeve
         },
       ],
       generationConfig: {
-        temperature: 0.45,
+        temperature: DEFAULT_REPORT_TEMPERATURE,
         responseMimeType: 'application/json',
       },
     }),
@@ -937,7 +1147,7 @@ async function createNativeGeminiReport({ imageDataUrl, medium, genre, skillLeve
   return normalizeReport(parseJsonText(outputText), { genre, skillLevel, medium });
 }
 
-async function createRelayReport({ imageDataUrl, medium, genre, skillLevel, fileName, workTitle, title }) {
+async function createRelayReport({ imageDataUrl, medium, genre, skillLevel, fileName, workTitle, title, toneProfile }) {
   const apiKey = process.env.GEMINI_RELAY_API_KEY;
 
   if (!apiKey) {
@@ -948,7 +1158,7 @@ async function createRelayReport({ imageDataUrl, medium, genre, skillLevel, file
 
   parseImageDataUrl(imageDataUrl);
 
-  const prompt = createReportPrompt({ medium, genre, skillLevel, fileName, workTitle, title });
+  const prompt = createReportPrompt({ medium, genre, skillLevel, fileName, workTitle, title, toneProfile });
   const relayUrl = `${GEMINI_RELAY_BASE_URL}/chat/completions`;
 
   console.log('[PhotoSense AI] provider mode: relay-openai-compatible');
@@ -973,7 +1183,7 @@ async function createRelayReport({ imageDataUrl, medium, genre, skillLevel, file
           ],
         },
       ],
-      temperature: 0.45,
+      temperature: DEFAULT_REPORT_TEMPERATURE,
     }),
   });
 
@@ -1020,14 +1230,14 @@ function createJsonRepairPrompt({ brokenText, medium, genre, skillLevel }) {
 - 不要尾随逗号。
 - 如果某个字段缺失或残缺，请用简短中文补全。
 - scores 必须是 0-100 整数。
-- 不要在 verdict、postProcessing、nextShooting 中写“本次评分、评分侧重、评价基准、点评口径、按初学者口径、按进阶口径、按高级口径、用户选择、AI、模型、建议优化后入选”。
+- 不要在 verdict、postProcessing、nextShooting 中写“本次评分、评分侧重、评价基准、点评口径、按初学者口径、按进阶口径、按高级口径、按爱好者水平口径、按进阶水平口径、用户选择、AI、模型、建议优化后入选”。
 
 当前上下文：
 - 影像介质：${medium}
 - 摄影题材：${genre}
-- 点评口径：${skillLevel}
+- 评价水平：${skillLevel}
 
-必须输出这些顶层字段：overall, verdict, reviewContext, scores, composition, lighting, colour, storytelling, technical, suggestions, postProcessing, nextShooting。recipe 可省略。
+必须输出这些顶层字段：overall, verdict, reviewContext, genreAssessment, scores, scoreReasons, photoSpecific, composition, lighting, colour, storytelling, technical, suggestions, previewAdjustments, postProcessing, nextShooting。recipe 可省略。
 
 损坏文本如下：
 ${safeBrokenText}`;
@@ -1051,7 +1261,7 @@ async function repairReportJsonWithOpenAiRelay({ apiKey, relayUrl, brokenText, m
         },
       ],
       temperature: 0,
-      max_tokens: 2600,
+      max_tokens: Math.min(OPENAI_RELAY_MAX_TOKENS, 2600),
       response_format: { type: 'json_object' },
     }),
   }, OPENAI_RELAY_TIMEOUT_MS);
@@ -1076,7 +1286,7 @@ async function repairReportJsonWithOpenAiRelay({ apiKey, relayUrl, brokenText, m
   return extractJsonFromText(repairOutputText);
 }
 
-async function createOpenAiRelayReport({ imageDataUrl, medium, genre, skillLevel, fileName, workTitle, title }) {
+async function createOpenAiRelayReport({ imageDataUrl, medium, genre, skillLevel, fileName, workTitle, title, toneProfile }) {
   const apiKey = process.env.OPENAI_RELAY_API_KEY;
 
   if (!apiKey) {
@@ -1087,7 +1297,7 @@ async function createOpenAiRelayReport({ imageDataUrl, medium, genre, skillLevel
 
   parseImageDataUrl(imageDataUrl);
 
-  const prompt = createReportPrompt({ medium, genre, skillLevel, fileName, workTitle, title });
+  const prompt = createReportPrompt({ medium, genre, skillLevel, fileName, workTitle, title, toneProfile });
   const relayUrl = `${OPENAI_RELAY_BASE_URL}/chat/completions`;
 
   console.log('[PhotoSense AI] provider mode: openai-relay');
@@ -1112,8 +1322,8 @@ async function createOpenAiRelayReport({ imageDataUrl, medium, genre, skillLevel
           ],
         },
       ],
-      temperature: 0.45,
-      max_tokens: 3000,
+      temperature: OPENAI_RELAY_TEMPERATURE,
+      max_tokens: OPENAI_RELAY_MAX_TOKENS,
       response_format: { type: 'json_object' },
     }),
   }, OPENAI_RELAY_TIMEOUT_MS);
@@ -1162,7 +1372,7 @@ async function createOpenAiRelayReport({ imageDataUrl, medium, genre, skillLevel
   return normalizeReport(parsedReport, { genre, skillLevel, medium });
 }
 
-async function createAnthropicRelayReport({ imageDataUrl, medium, genre, skillLevel, fileName, workTitle, title }) {
+async function createAnthropicRelayReport({ imageDataUrl, medium, genre, skillLevel, fileName, workTitle, title, toneProfile }) {
   const apiKey = process.env.ANTHROPIC_RELAY_API_KEY;
 
   if (!apiKey) {
@@ -1172,7 +1382,7 @@ async function createAnthropicRelayReport({ imageDataUrl, medium, genre, skillLe
   }
 
   const { mimeType, base64Data } = parseImageDataUrl(imageDataUrl);
-  const prompt = createReportPrompt({ medium, genre, skillLevel, fileName, workTitle, title });
+  const prompt = createReportPrompt({ medium, genre, skillLevel, fileName, workTitle, title, toneProfile });
   const relayUrl = `${ANTHROPIC_RELAY_BASE_URL}/v1/messages`;
 
   console.log('[PhotoSense AI] provider mode: anthropic-relay');
@@ -1191,7 +1401,7 @@ async function createAnthropicRelayReport({ imageDataUrl, medium, genre, skillLe
     body: JSON.stringify({
       model: ANTHROPIC_RELAY_MODEL,
       max_tokens: 3000,
-      temperature: 0.45,
+      temperature: DEFAULT_REPORT_TEMPERATURE,
       messages: [
         {
           role: 'user',
@@ -1246,28 +1456,76 @@ async function createAnthropicRelayReport({ imageDataUrl, medium, genre, skillLe
   return normalizeReport(parseJsonText(outputText), { genre, skillLevel, medium });
 }
 
-async function createPhotoReport({ imageDataUrl, medium = '数码摄影', genre = '街头摄影', skillLevel = '初学者', fileName = '', workTitle = '', title = '' }) {
-  const context = { imageDataUrl, medium, genre, skillLevel, fileName, workTitle, title };
+function formatMeasuredValue(value, suffix = '') {
+  const rounded = Number(value.toFixed(2));
+  return `${rounded > 0 ? '+' : ''}${rounded}${suffix}`;
+}
+
+function applyMeasuredToneProfile(report, toneProfile) {
+  const adjustments = toneProfile.adjustments;
+  const global = adjustments.global;
+
+  return {
+    ...report,
+    recipe: {
+      ...report.recipe,
+      exposure: formatMeasuredValue(global.exposureEv, ' EV'),
+      contrast: formatMeasuredValue(global.contrast),
+      highlights: formatMeasuredValue(global.highlights),
+      shadows: formatMeasuredValue(global.shadows),
+      temperature: formatMeasuredValue(global.temperature),
+      cropRatio: '保持原比例',
+    },
+    previewAdjustments: adjustments,
+    postProcessing: {
+      ...report.postProcessing,
+      tone: toneProfile.tone,
+    },
+  };
+}
+
+async function createPhotoReport({ imageDataUrl, medium = '数码摄影', genre = '街头摄影', skillLevel = DEFAULT_SKILL_LEVEL, fileName = '', workTitle = '', title = '' }) {
+  const normalizedSkillLevel = normalizeSkillLevel(skillLevel);
+  const toneProfile = await analyzeImageTone(imageDataUrl, { medium });
+  const context = { imageDataUrl, medium, genre, skillLevel: normalizedSkillLevel, fileName, workTitle, title, toneProfile };
+  let report;
 
   if (OPENAI_RELAY_BASE_URL) {
-    return createOpenAiRelayReport(context);
+    report = await createOpenAiRelayReport(context);
+  } else if (GEMINI_RELAY_BASE_URL) {
+    report = await createRelayReport(context);
+  } else if (ANTHROPIC_RELAY_BASE_URL) {
+    report = await createAnthropicRelayReport(context);
+  } else if (process.env.GEMINI_API_KEY) {
+    report = await createNativeGeminiReport(context);
+  } else {
+    const error = new Error('未配置可用的 AI provider API Key。');
+    error.statusCode = 503;
+    throw error;
   }
 
-  if (GEMINI_RELAY_BASE_URL) {
-    return createRelayReport(context);
-  }
+  const stableBaseEvaluation = getStableBaseEvaluation({
+    imageDataUrl,
+    medium,
+    genre,
+    scores: report.scores,
+    scoreReasons: report.scoreReasons,
+  });
+  const calibratedScores = calibrateScoresForSkill(stableBaseEvaluation.scores, normalizedSkillLevel);
+  const scoredReport = {
+    ...report,
+    scores: calibratedScores,
+    scoreReasons: stableBaseEvaluation.scoreReasons,
+    verdict: {
+      ...report.verdict,
+      title: getSafeVerdictTitle(genre, calibratedScores, normalizedSkillLevel),
+    },
+  };
+  const finalReport = applyMeasuredToneProfile(scoredReport, toneProfile);
 
-  if (ANTHROPIC_RELAY_BASE_URL) {
-    return createAnthropicRelayReport(context);
-  }
-
-  if (process.env.GEMINI_API_KEY) {
-    return createNativeGeminiReport(context);
-  }
-
-  const error = new Error('未配置可用的 AI provider API Key。');
-  error.statusCode = 503;
-  throw error;
+  return normalizedSkillLevel === '爱好者水平'
+    ? simplifyHobbyistValue(finalReport)
+    : finalReport;
 }
 
 function createExportFileName(date = new Date()) {
@@ -1277,7 +1535,7 @@ function createExportFileName(date = new Date()) {
 }
 
 async function saveReportHistoryExport(body) {
-  const records = Array.isArray(body?.records) ? body.records : [];
+  const records = Array.isArray(body?.records) ? body.records.slice(0, MAX_HISTORY_RECORDS) : [];
   const exportedAt = typeof body?.exportedAt === 'string' ? body.exportedAt : new Date().toISOString();
   const payload = {
     app: 'PhotoSense AI',
@@ -1291,6 +1549,12 @@ async function saveReportHistoryExport(body) {
   await fs.mkdir(EXPORTS_DIR, { recursive: true });
   await fs.writeFile(HISTORY_EXPORT_PATH, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
   await fs.writeFile(snapshotPath, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
+
+  const snapshotFiles = (await fs.readdir(EXPORTS_DIR))
+    .filter((fileName) => /^photosense_reports_export_.*\.json$/.test(fileName))
+    .sort()
+    .reverse();
+  await Promise.all(snapshotFiles.slice(MAX_EXPORT_SNAPSHOTS).map((fileName) => fs.unlink(path.join(EXPORTS_DIR, fileName))));
 
   console.log('[PhotoSense AI] report history saved:', stableRelativePath, `records=${records.length}`);
   console.log('[PhotoSense AI] report history snapshot saved:', path.relative(process.cwd(), snapshotPath).replace(/\\/g, '/'));
@@ -1378,6 +1642,21 @@ const server = http.createServer(async (request, response) => {
 
   const requestUrl = new URL(request.url || '/', `http://${request.headers.host || 'localhost'}`);
 
+  if (requestUrl.pathname === '/api/health' && (request.method === 'GET' || request.method === 'HEAD')) {
+    const healthPayload = JSON.stringify({
+      ok: true,
+      app: 'PhotoSense AI',
+      providerConfigured: hasConfiguredProvider(process.env),
+      historyExportEnabled: HISTORY_EXPORT_ENABLED,
+      previewRenderer: 'sharp',
+      timestamp: new Date().toISOString(),
+    });
+    setCorsHeaders(response);
+    response.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+    response.end(request.method === 'HEAD' ? undefined : healthPayload);
+    return;
+  }
+
   if (request.method === 'GET' || request.method === 'HEAD') {
     await serveStaticApp(request, response, requestUrl);
     return;
@@ -1389,6 +1668,11 @@ const server = http.createServer(async (request, response) => {
   }
 
   if (requestUrl.pathname === '/api/save-report-history') {
+    if (!HISTORY_EXPORT_ENABLED) {
+      sendJson(response, 403, { ok: false, error: '报告历史导出仅在明确启用的本地开发环境中可用。' });
+      return;
+    }
+
     console.log('[PhotoSense AI] save report history request received');
 
     try {
@@ -1403,6 +1687,27 @@ const server = http.createServer(async (request, response) => {
       });
     }
 
+    return;
+  }
+
+  if (requestUrl.pathname === '/api/render-preview') {
+    try {
+      const body = await readJsonBody(request);
+      const toneProfile = await analyzeImageTone(body?.imageDataUrl, {
+        medium: body?.medium === '胶片摄影' ? '胶片摄影' : '数码摄影',
+      });
+      const preview = await renderPreviewWithTimeout({
+        imageDataUrl: body?.imageDataUrl,
+        recipe: toneProfile.adjustments,
+      });
+      sendJson(response, 200, { ok: true, preview, toneProfile });
+    } catch (error) {
+      console.error('[PhotoSense AI] preview render failed:', error);
+      sendJson(response, error.statusCode || 500, {
+        ok: false,
+        error: error.message || '生成后期预览失败。',
+      });
+    }
     return;
   }
 
@@ -1438,4 +1743,5 @@ const server = http.createServer(async (request, response) => {
 
 server.listen(PORT, () => {
   console.log(`PhotoSense AI local API running at http://localhost:${PORT}/api/analyze-photo`);
+  console.log(`PhotoSense AI preview renderer running at http://localhost:${PORT}/api/render-preview`);
 });

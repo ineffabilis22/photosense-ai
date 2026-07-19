@@ -5,19 +5,29 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "server": "node server/analyze-photo.mjs",
+    "server": "node server/start.mjs",
     "build": "tsc -b && vite build",
+    "test": "node --import tsx --test tests/*.test.ts tests/*.test.tsx",
+    "test:typecheck": "tsc --noEmit -p tsconfig.tests.json",
+    "check": "npm run test:typecheck && npm run test && npm run build",
     "preview": "vite preview",
-    "start": "node server/analyze-photo.mjs"
+    "start": "node server/start.mjs"
   },
   "dependencies": {
-    "@vitejs/plugin-react": "^4.3.4",
-    "vite": "^6.0.0",
-    "typescript": "^5.7.2",
+    "html2canvas": "^1.4.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "@types/react": "^18.3.12",
-    "@types/react-dom": "^18.3.1"
+    "sharp": "^0.35.3"
   },
-  "devDependencies": {}
+  "devDependencies": {
+    "@types/jsdom": "^21.1.7",
+    "@types/node": "^25.0.0",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "jsdom": "^26.1.0",
+    "tsx": "^4.20.3",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.0"
+  }
 }
