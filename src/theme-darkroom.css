@@ -7770,6 +7770,7 @@ textarea {
 
   .page-home .home-gallery-focus {
     box-sizing: border-box;
+    grid-template-columns: minmax(0, 1fr);
     gap: 16px;
     width: 100%;
     margin-top: 92px;
@@ -7792,6 +7793,7 @@ textarea {
 
   .page-home .home-gallery-result {
     box-sizing: border-box;
+    grid-area: auto;
     justify-self: start;
     width: min(82%, 380px);
   }
