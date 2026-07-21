@@ -8,7 +8,6 @@ import type { HistoryRecord, Report } from '../src/types/report';
 const HISTORY_STORAGE_KEY = 'photosense_history_records';
 const HISTORY_SCHEMA_VERSION_KEY = 'photosense_history_schema_version';
 const HISTORY_SCHEMA_VERSION = '2';
-const HOME_INTRO_SEEN_SESSION_KEY = 'photosense_home_intro_seen_session';
 const imageDataUrl = 'data:image/jpeg;base64,/9j/2Q==';
 
 type TestEnvironment = {
@@ -28,7 +27,6 @@ function installDom() {
     document: { configurable: true, value: window.document },
     navigator: { configurable: true, value: window.navigator },
     localStorage: { configurable: true, value: window.localStorage },
-    sessionStorage: { configurable: true, value: window.sessionStorage },
     HTMLElement: { configurable: true, value: window.HTMLElement },
     HTMLInputElement: { configurable: true, value: window.HTMLInputElement },
     HTMLCanvasElement: { configurable: true, value: window.HTMLCanvasElement },
@@ -671,36 +669,32 @@ test('首页流程先上传照片再选择照片属性', async () => {
   }
 });
 
-test('首页每个浏览会话首次访问三秒后隐藏介绍，会话内回到首页时保持照片墙', async () => {
-  let autoHide: (() => void) | undefined;
+test('首页每次进入都显示介绍，且只由眼睛按钮切换', async () => {
+  let autoHideScheduled = false;
   const environment = await renderApp([], HISTORY_SCHEMA_VERSION, () => {
     localStorage.setItem('photosense_home_intro_seen', 'true');
+    window.sessionStorage.setItem('photosense_home_intro_seen_session', 'true');
+    const originalSetTimeout = window.setTimeout;
     window.setTimeout = ((handler: TimerHandler, delay?: number) => {
-      if (delay === 3_000 && typeof handler === 'function') autoHide = () => (handler as () => void)();
-      return 1 as unknown as number;
+      if (delay === 3_000) autoHideScheduled = true;
+      return originalSetTimeout(handler, delay);
     }) as typeof window.setTimeout;
   });
 
   try {
-    assert.equal(document.querySelector('.home-intro-content')?.hasAttribute('hidden'), false, '首次访问应先显示介绍');
-    assert.ok(autoHide, '首次访问应安排三秒自动隐藏');
+    assert.equal(document.querySelector('.home-intro-content')?.hasAttribute('hidden'), false, '进入首页应立即显示介绍');
+    assert.equal(autoHideScheduled, false, '首页不应安排三秒自动隐藏');
 
-    await act(async () => autoHide?.());
-    assert.equal(document.querySelector('.home-intro-content')?.hasAttribute('hidden'), true);
-    assert.equal(sessionStorage.getItem(HOME_INTRO_SEEN_SESSION_KEY), 'true');
+    const hideIntroButton = document.querySelector<HTMLButtonElement>('button[aria-label="隐藏介绍"]');
+    assert.ok(hideIntroButton);
+    await click(hideIntroButton);
+    assert.equal(document.querySelector('.home-intro-content')?.hasAttribute('hidden'), true, '用户点击眼睛后应隐藏介绍');
 
     await click(getMainNavigationButton('开始点评'));
     await click(getMainNavigationButton('首页'));
-    assert.equal(document.querySelector('.home-intro-content')?.hasAttribute('hidden'), true, '再次进入首页应保持照片墙');
+    assert.equal(document.querySelector('.home-intro-content')?.hasAttribute('hidden'), false, '再次进入首页应重新显示介绍');
   } finally {
     await cleanupEnvironment(environment);
-  }
-
-  const newSessionEnvironment = await renderApp();
-  try {
-    assert.equal(document.querySelector('.home-intro-content')?.hasAttribute('hidden'), false, '新的浏览会话应重新显示介绍');
-  } finally {
-    await cleanupEnvironment(newSessionEnvironment);
   }
 });
 

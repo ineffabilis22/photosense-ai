@@ -31,9 +31,6 @@ const mediums: Medium[] = ['数码摄影', '胶片摄影'];
 const genres: Genre[] = ['街头摄影', '人像摄影', '风景摄影', '建筑摄影', '静物摄影', '旅行摄影'];
 
 const homeBackgroundPhotos = Array.from({ length: 34 }, (_, index) => `/home-backgrounds/photo-${String(index + 1).padStart(2, '0')}.jpg`);
-const HOME_INTRO_SEEN_SESSION_KEY = 'photosense_home_intro_seen_session';
-const HOME_INTRO_AUTO_HIDE_DELAY_MS = 3_000;
-
 const homeBackgroundCollage = [
   { src: homeBackgroundPhotos[0], className: 'card-01' },
   { src: homeBackgroundPhotos[6], className: 'card-02' },
@@ -1711,25 +1708,11 @@ function HomePage({ onStartReview }: { onStartReview: () => void }) {
   const [isCollagePaused, setIsCollagePaused] = useState(false);
   const [frontCollageIndex, setFrontCollageIndex] = useState(0);
   const [previousCollageIndex, setPreviousCollageIndex] = useState<number | null>(null);
-  const [isIntroVisible, setIsIntroVisible] = useState(() => window.sessionStorage.getItem(HOME_INTRO_SEEN_SESSION_KEY) !== 'true');
+  const [isIntroVisible, setIsIntroVisible] = useState(true);
   const [selectedGalleryIndex, setSelectedGalleryIndex] = useState<number | null>(8);
   const activeShowcase = homeShowcaseItems.find((item) => item.id === activeShowcaseId) ?? homeShowcaseItems[0];
   const selectedGalleryPhoto = selectedGalleryIndex === null ? null : homeBackgroundCollage[selectedGalleryIndex];
   const selectedGalleryResult = selectedGalleryPhoto ? homeGalleryResults.find((item) => item.src === selectedGalleryPhoto.src) : null;
-
-  const markIntroSeen = () => window.sessionStorage.setItem(HOME_INTRO_SEEN_SESSION_KEY, 'true');
-
-  useEffect(() => {
-    if (!isIntroVisible || window.sessionStorage.getItem(HOME_INTRO_SEEN_SESSION_KEY) === 'true') return undefined;
-
-    const timerId = window.setTimeout(() => {
-      setSelectedGalleryIndex(null);
-      setIsIntroVisible(false);
-      markIntroSeen();
-    }, HOME_INTRO_AUTO_HIDE_DELAY_MS);
-
-    return () => window.clearTimeout(timerId);
-  }, [isIntroVisible]);
 
   useEffect(() => {
     if (isCarouselPaused || !isIntroVisible || window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return undefined;
@@ -1773,11 +1756,7 @@ function HomePage({ onStartReview }: { onStartReview: () => void }) {
   const handleToggleIntro = () => {
     const updateVisibility = () => flushSync(() => {
       setSelectedGalleryIndex(null);
-      setIsIntroVisible((visible) => {
-        const nextVisible = !visible;
-        if (!nextVisible) markIntroSeen();
-        return nextVisible;
-      });
+      setIsIntroVisible((visible) => !visible);
     });
     const transitionDocument = document as Document & {
       startViewTransition?: (update: () => void) => void;
