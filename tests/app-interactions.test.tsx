@@ -8,7 +8,7 @@ import type { HistoryRecord, Report } from '../src/types/report';
 const HISTORY_STORAGE_KEY = 'photosense_history_records';
 const HISTORY_SCHEMA_VERSION_KEY = 'photosense_history_schema_version';
 const HISTORY_SCHEMA_VERSION = '2';
-const HOME_INTRO_SEEN_KEY = 'photosense_home_intro_seen';
+const HOME_INTRO_SEEN_SESSION_KEY = 'photosense_home_intro_seen_session';
 const imageDataUrl = 'data:image/jpeg;base64,/9j/2Q==';
 
 type TestEnvironment = {
@@ -28,6 +28,7 @@ function installDom() {
     document: { configurable: true, value: window.document },
     navigator: { configurable: true, value: window.navigator },
     localStorage: { configurable: true, value: window.localStorage },
+    sessionStorage: { configurable: true, value: window.sessionStorage },
     HTMLElement: { configurable: true, value: window.HTMLElement },
     HTMLInputElement: { configurable: true, value: window.HTMLInputElement },
     HTMLCanvasElement: { configurable: true, value: window.HTMLCanvasElement },
@@ -670,9 +671,10 @@ test('首页流程先上传照片再选择照片属性', async () => {
   }
 });
 
-test('首页首次访问三秒后隐藏介绍，回到首页时保持照片墙', async () => {
+test('首页每个浏览会话首次访问三秒后隐藏介绍，会话内回到首页时保持照片墙', async () => {
   let autoHide: (() => void) | undefined;
   const environment = await renderApp([], HISTORY_SCHEMA_VERSION, () => {
+    localStorage.setItem('photosense_home_intro_seen', 'true');
     window.setTimeout = ((handler: TimerHandler, delay?: number) => {
       if (delay === 3_000 && typeof handler === 'function') autoHide = () => (handler as () => void)();
       return 1 as unknown as number;
@@ -685,13 +687,20 @@ test('首页首次访问三秒后隐藏介绍，回到首页时保持照片墙',
 
     await act(async () => autoHide?.());
     assert.equal(document.querySelector('.home-intro-content')?.hasAttribute('hidden'), true);
-    assert.equal(localStorage.getItem(HOME_INTRO_SEEN_KEY), 'true');
+    assert.equal(sessionStorage.getItem(HOME_INTRO_SEEN_SESSION_KEY), 'true');
 
     await click(getMainNavigationButton('开始点评'));
     await click(getMainNavigationButton('首页'));
     assert.equal(document.querySelector('.home-intro-content')?.hasAttribute('hidden'), true, '再次进入首页应保持照片墙');
   } finally {
     await cleanupEnvironment(environment);
+  }
+
+  const newSessionEnvironment = await renderApp();
+  try {
+    assert.equal(document.querySelector('.home-intro-content')?.hasAttribute('hidden'), false, '新的浏览会话应重新显示介绍');
+  } finally {
+    await cleanupEnvironment(newSessionEnvironment);
   }
 });
 
