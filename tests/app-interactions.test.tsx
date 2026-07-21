@@ -8,6 +8,7 @@ import type { HistoryRecord, Report } from '../src/types/report';
 const HISTORY_STORAGE_KEY = 'photosense_history_records';
 const HISTORY_SCHEMA_VERSION_KEY = 'photosense_history_schema_version';
 const HISTORY_SCHEMA_VERSION = '2';
+const HOME_INTRO_SEEN_KEY = 'photosense_home_intro_seen';
 const imageDataUrl = 'data:image/jpeg;base64,/9j/2Q==';
 
 type TestEnvironment = {
@@ -74,10 +75,15 @@ function installDom() {
   return dom;
 }
 
-async function renderApp(historyRecords: HistoryRecord[] = [], historySchemaVersion = HISTORY_SCHEMA_VERSION): Promise<TestEnvironment> {
+async function renderApp(
+  historyRecords: HistoryRecord[] = [],
+  historySchemaVersion = HISTORY_SCHEMA_VERSION,
+  configureWindow?: () => void,
+): Promise<TestEnvironment> {
   const dom = installDom();
   dom.window.localStorage.setItem(HISTORY_SCHEMA_VERSION_KEY, historySchemaVersion);
   dom.window.localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(historyRecords));
+  configureWindow?.();
   const [{ createRoot }, { default: App }] = await Promise.all([
     import('react-dom/client'),
     import('../src/App'),
@@ -659,6 +665,31 @@ test('首页流程先上传照片再选择照片属性', async () => {
     assert.equal(steps[0]?.querySelector('strong')?.textContent?.trim(), '上传一张照片');
     assert.equal(steps[1]?.querySelector('strong')?.textContent?.trim(), '选择照片属性');
     assert.equal(steps[3]?.querySelector('strong')?.textContent?.trim(), '复盘分析记录');
+  } finally {
+    await cleanupEnvironment(environment);
+  }
+});
+
+test('首页首次访问三秒后隐藏介绍，回到首页时保持照片墙', async () => {
+  let autoHide: (() => void) | undefined;
+  const environment = await renderApp([], HISTORY_SCHEMA_VERSION, () => {
+    window.setTimeout = ((handler: TimerHandler, delay?: number) => {
+      if (delay === 3_000 && typeof handler === 'function') autoHide = () => (handler as () => void)();
+      return 1 as unknown as number;
+    }) as typeof window.setTimeout;
+  });
+
+  try {
+    assert.equal(document.querySelector('.home-intro-content')?.hasAttribute('hidden'), false, '首次访问应先显示介绍');
+    assert.ok(autoHide, '首次访问应安排三秒自动隐藏');
+
+    await act(async () => autoHide?.());
+    assert.equal(document.querySelector('.home-intro-content')?.hasAttribute('hidden'), true);
+    assert.equal(localStorage.getItem(HOME_INTRO_SEEN_KEY), 'true');
+
+    await click(getMainNavigationButton('开始点评'));
+    await click(getMainNavigationButton('首页'));
+    assert.equal(document.querySelector('.home-intro-content')?.hasAttribute('hidden'), true, '再次进入首页应保持照片墙');
   } finally {
     await cleanupEnvironment(environment);
   }

@@ -7779,7 +7779,7 @@ textarea {
   .page-home .home-gallery-focus-frame {
     box-sizing: border-box;
     justify-self: end;
-    width: calc(100% - 24px);
+    width: min(82%, 380px);
     min-height: 0;
     padding: 10px;
   }
@@ -7793,7 +7793,7 @@ textarea {
   .page-home .home-gallery-result {
     box-sizing: border-box;
     justify-self: start;
-    width: calc(100% - 24px);
+    width: min(82%, 380px);
   }
 
   .page-home .home-gallery-result .home-report-preview-grid {
