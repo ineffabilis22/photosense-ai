@@ -6676,6 +6676,36 @@ textarea {
   to { opacity: 1; transform: translateY(0) scale(1); }
 }
 
+@media (min-width: 761px) {
+  .page-home .home-gallery-focus {
+    grid-template-columns: minmax(0, 1.35fr) minmax(340px, 0.65fr);
+    align-items: start;
+    width: min(1180px, calc(100% - 64px));
+    margin-top: clamp(24px, 4vh, 48px);
+  }
+
+  .page-home .home-gallery-focus-frame {
+    box-sizing: border-box;
+    width: 100%;
+    height: min(68vh, 640px);
+    min-height: 0;
+  }
+
+  .page-home .home-gallery-focus-image {
+    width: 100%;
+    height: min(calc(68vh - 44px), 596px);
+    max-width: 100%;
+    max-height: none;
+    object-fit: contain;
+  }
+
+  .page-home .home-gallery-focus > .home-gallery-result {
+    grid-area: auto;
+    align-self: start;
+    width: 100%;
+  }
+}
+
 .page-report .diagnostic-report.is-simple-export .report-export-cover {
   color: #fff4e4;
   background: var(--ps-orange) !important;
