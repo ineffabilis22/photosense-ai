@@ -3,7 +3,7 @@ import test from 'node:test';
 import type { HistoryRecord, Report } from '../src/types/report';
 import { compareHistoryRecords } from '../src/utils/comparison';
 
-function createRecord(id: string, createdAt: string, overallScore: number, scores: Report['scores']): HistoryRecord {
+function createRecord(id: string, createdAt: string, overallScore: number, scores: Report['scores'], scoreVersion = 'v3'): HistoryRecord {
   return {
     id,
     title: id,
@@ -18,6 +18,7 @@ function createRecord(id: string, createdAt: string, overallScore: number, score
     dateTime: createdAt,
     createdAt,
     reportSource: 'ai',
+    scoreVersion,
     overallScore,
     tags: [],
     summary: `${id} summary`,
@@ -25,6 +26,7 @@ function createRecord(id: string, createdAt: string, overallScore: number, score
     weakestDimension: '叙事',
     report: {
       overall: `${id} overall`,
+      scoreVersion,
       scores,
       composition: '构图',
       lighting: '光线',
@@ -46,6 +48,7 @@ test('报告对比按时间识别前后作品并计算变化', () => {
   assert.equal(comparison.older.id, 'older');
   assert.equal(comparison.newer.id, 'newer');
   assert.equal(comparison.totalDelta, 7);
+  assert.ok(comparison.mostImproved);
   assert.equal(comparison.mostImproved.name, '构图');
   assert.equal(comparison.mostImproved.delta, 12);
   assert.equal(comparison.practicePriority.name, '叙事');
@@ -58,6 +61,19 @@ test('没有提升项时指出下降幅度最大的维度', () => {
   const comparison = compareHistoryRecords(older, newer);
 
   assert.equal(comparison.hasImprovement, false);
+  assert.ok(comparison.mostImproved);
   assert.equal(comparison.mostImproved.name, '光线');
   assert.equal(comparison.mostImproved.delta, -10);
+});
+
+test('不同评分版本只并列展示，不计算误导性分差', () => {
+  const older = createRecord('older', '2026-01-01T10:00:00Z', 65, { 构图: 60, 光线: 62, 色彩: 75, 叙事: 55, 技术完成度: 73 }, 'v2');
+  const newer = createRecord('newer', '2026-02-01T10:00:00Z', 85, { 构图: 85, 光线: 85, 色彩: 85, 叙事: 85, 技术完成度: 85 }, 'v3');
+  const comparison = compareHistoryRecords(older, newer);
+
+  assert.equal(comparison.isComparable, false);
+  assert.equal(comparison.totalDelta, null);
+  assert.equal(comparison.mostImproved, null);
+  assert.ok(comparison.dimensions.every((item) => item.delta === null));
+  assert.match(comparison.comparisonReason, /评分标准不同/);
 });

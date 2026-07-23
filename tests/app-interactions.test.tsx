@@ -7,7 +7,7 @@ import type { HistoryRecord, Report } from '../src/types/report';
 
 const HISTORY_STORAGE_KEY = 'photosense_history_records';
 const HISTORY_SCHEMA_VERSION_KEY = 'photosense_history_schema_version';
-const HISTORY_SCHEMA_VERSION = '2';
+const HISTORY_SCHEMA_VERSION = '3';
 const imageDataUrl = 'data:image/jpeg;base64,/9j/2Q==';
 
 type TestEnvironment = {
@@ -199,6 +199,9 @@ async function waitFor(check: () => boolean, description: string, timeoutMs = 40
 function createAiReport(): Report {
   return {
     overall: '红伞人物是明确主体，湿润路面提供了夜景层次。',
+    scoreVersion: 'v3',
+    scoreBands: { 构图: '成立', 光线: '成立', 色彩: '强', 叙事: '成立', 技术完成度: '成立' },
+    improvementPriority: 'optional',
     scores: { 构图: 78, 光线: 74, 色彩: 84, 叙事: 72, 技术完成度: 76 },
     composition: '结论：主体清楚。说明：右侧车灯略有干扰。方向：从右侧轻微收紧。',
     lighting: '结论：夜景层次可读。说明：路面高光略亮。方向：轻微回收高光。',
@@ -252,6 +255,7 @@ function createHistoryRecord(id: string, createdAt: string, scoreShift: number):
     createdAt,
     report,
     reportSource: 'ai',
+    scoreVersion: report.scoreVersion,
     overallScore: 76 + scoreShift,
     tags: [],
     summary: report.verdict?.summary ?? report.overall,
@@ -649,6 +653,65 @@ test('评价体系升级时清空旧标准下的历史记录', async () => {
     assert.match(document.body.textContent ?? '', /暂无历史记录/);
     assert.equal(localStorage.getItem(HISTORY_SCHEMA_VERSION_KEY), HISTORY_SCHEMA_VERSION);
     assert.deepEqual(JSON.parse(localStorage.getItem(HISTORY_STORAGE_KEY) ?? '[]'), []);
+  } finally {
+    await cleanupEnvironment(environment);
+  }
+});
+
+test('v2 历史记录升级到 v3 时保留，并标明旧评分标准', async () => {
+  const legacyRecord = createHistoryRecord('legacy-v2', '2026-02-01T10:00:00Z', 0);
+  delete legacyRecord.scoreVersion;
+  delete legacyRecord.report.scoreVersion;
+  const environment = await renderApp([legacyRecord], '2');
+
+  try {
+    await click(getMainNavigationButton('历史记录'));
+    assert.doesNotMatch(document.body.textContent ?? '', /暂无历史记录/);
+    assert.match(document.body.textContent ?? '', /旧评分标准/);
+    assert.equal(localStorage.getItem(HISTORY_SCHEMA_VERSION_KEY), HISTORY_SCHEMA_VERSION);
+  } finally {
+    await cleanupEnvironment(environment);
+  }
+});
+
+test('跨评分版本的历史对比不显示分数变化', async () => {
+  const older = createHistoryRecord('older', '2026-01-01T10:00:00Z', -7);
+  older.scoreVersion = 'v2';
+  older.report.scoreVersion = 'v2';
+  const newer = createHistoryRecord('newer', '2026-02-01T10:00:00Z', 0);
+  const environment = await renderApp([newer, older]);
+
+  try {
+    await click(getMainNavigationButton('历史记录'));
+    await click(getButton('对比记录'));
+    await click(getButtons('选择对比')[0]);
+    await click(getButtons('选择对比')[0]);
+    await click(getButton('查看对比（2/2）'));
+
+    assert.match(document.body.textContent ?? '', /评分标准不同/);
+    assert.doesNotMatch(document.body.textContent ?? '', /\+7/);
+  } finally {
+    await cleanupEnvironment(environment);
+  }
+});
+
+test('高完成度报告允许明确显示无明显问题', async () => {
+  const strongRecord = createHistoryRecord('strong', '2026-02-01T10:00:00Z', 10);
+  strongRecord.overallScore = 88;
+  strongRecord.report.scores = { 构图: 95, 光线: 85, 色彩: 85, 叙事: 85, 技术完成度: 85 };
+  strongRecord.report.scoreBands = { 构图: '作品级', 光线: '强', 色彩: '强', 叙事: '强', 技术完成度: '强' };
+  strongRecord.report.improvementPriority = 'none';
+  const environment = await renderApp([strongRecord]);
+
+  try {
+    await click(getMainNavigationButton('历史记录'));
+    await click(getHistoryReportControl(document.querySelector('.history-card') as Element));
+
+    assert.match(document.body.textContent ?? '', /未发现影响画面成立的明显问题/);
+    assert.match(document.body.textContent ?? '', /当前判断/);
+    assert.doesNotMatch(document.body.textContent ?? '', /最优先问题/);
+    assert.doesNotMatch(document.querySelector('.radar-legend-list')?.textContent ?? '', /待优化/);
+    assert.doesNotMatch(document.querySelector('.dimension-diagnosis')?.textContent ?? '', /优先处理/);
   } finally {
     await cleanupEnvironment(environment);
   }

@@ -16,6 +16,10 @@ function getRecordTimestamp(record: HistoryRecord) {
   return Number.isFinite(timestamp) ? timestamp : 0;
 }
 
+function getScoreVersion(record: HistoryRecord) {
+  return record.scoreVersion || record.report.scoreVersion || 'v2';
+}
+
 export function countRecordsInCurrentMonth(records: HistoryRecord[], now = new Date()) {
   return records.filter((record) => {
     const date = new Date(record.createdAt || record.date);
@@ -41,8 +45,18 @@ export function filterAndSortHistoryRecords(records: HistoryRecord[], filters: H
         .includes(keyword);
     })
     .sort((first, second) => {
-      if (filters.sort === '评分最高') return second.overallScore - first.overallScore;
-      if (filters.sort === '评分最低') return first.overallScore - second.overallScore;
+      if (filters.sort === '评分最高' || filters.sort === '评分最低') {
+        const firstVersion = getScoreVersion(first);
+        const secondVersion = getScoreVersion(second);
+        if (firstVersion !== secondVersion) {
+          if (firstVersion === 'v3') return -1;
+          if (secondVersion === 'v3') return 1;
+          return firstVersion.localeCompare(secondVersion);
+        }
+        return filters.sort === '评分最高'
+          ? second.overallScore - first.overallScore
+          : first.overallScore - second.overallScore;
+      }
       return getRecordTimestamp(second) - getRecordTimestamp(first);
     });
 }

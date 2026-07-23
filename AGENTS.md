@@ -34,7 +34,9 @@ Before changing UI styles, read `VISUAL_STYLE_AGENT.md`. The approved direction 
 
 When editing report generation or report UI, preserve the link between `medium`, `genre`, `skillLevel`, and the resulting report criteria. These selections are not metadata only. They must influence evaluation criteria, scoring emphasis, critique vocabulary, post-processing advice, next shooting advice, and the visible report context. Do not remove or bypass this connection.
 
-`skillLevel` currently supports exactly two user-facing values: `爱好者水平` and `进阶水平`. `爱好者水平` uses plain language and a consistent six-point tolerance adjustment; `进阶水平` uses the neutral base score and may use explained photography terminology. Legacy inputs `初学者`, `进阶`, and `高级` may only appear in compatibility normalization or output-cleaning rules; they must not return as selectable UI values.
+`skillLevel` currently supports exactly two user-facing values: `爱好者水平` and `进阶水平`. Both levels use the same evidence-based v3 score bands and numeric mapping; `爱好者水平` uses plain language, while `进阶水平` may use explained photography terminology. Do not add a score offset for either level. Legacy inputs `初学者`, `进阶`, and `高级` may only appear in compatibility normalization or output-cleaning rules; they must not return as selectable UI values.
+
+The v3 scoring bands are `作品级`, `强`, `成立`, `普通`, `偏弱`, and `严重问题`. The server owns their numeric mapping. If all five dimensions are `作品级` or `强`, the report must explicitly state that no significant issue was found instead of inventing a criticism. Historical records from v2 remain readable but must not be used for numeric deltas against v3 records.
 
 ## User-Facing Critique Language Rule
 

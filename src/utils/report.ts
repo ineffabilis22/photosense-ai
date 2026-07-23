@@ -1,7 +1,9 @@
-import type { Genre, GenreAssessment, PostProcessingAdviceItem, Report, ReviewContext, ScoreName } from '../types/report';
+import type { Genre, GenreAssessment, ImprovementPriority, PostProcessingAdviceItem, Report, ReviewContext, ScoreBand, ScoreName } from '../types/report';
 import { normalizePreviewAdjustments } from './preview';
 
 const scoreNames: ScoreName[] = ['构图', '光线', '色彩', '叙事', '技术完成度'];
+const scoreBandNames: ScoreBand[] = ['作品级', '强', '成立', '普通', '偏弱', '严重问题'];
+const improvementPriorities: ImprovementPriority[] = ['none', 'optional', 'material', 'critical'];
 const genres: Genre[] = ['街头摄影', '人像摄影', '风景摄影', '建筑摄影', '静物摄影', '旅行摄影'];
 const internalMetaPhrases = [
   '本次评分',
@@ -35,6 +37,15 @@ export function sanitizeUserFacingText(value: unknown, fallback: string) {
 function normalizeScore(value: unknown, fallback: number) {
   const numericValue = typeof value === 'number' ? value : Number(value);
   return Number.isFinite(numericValue) ? Math.max(0, Math.min(100, Math.round(numericValue))) : fallback;
+}
+
+function getScoreBandFromNumber(value: number): ScoreBand {
+  if (value >= 90) return '作品级';
+  if (value >= 80) return '强';
+  if (value >= 70) return '成立';
+  if (value >= 60) return '普通';
+  if (value >= 45) return '偏弱';
+  return '严重问题';
 }
 
 function normalizeStringArray(value: unknown, fallback: string[], limit: number) {
@@ -83,6 +94,22 @@ export function mergeAiReportWithFallback(candidate: unknown, fallback: Report, 
     result[name] = normalizeScore(sourceScores[name], fallback.scores[name]);
     return result;
   }, {} as Record<ScoreName, number>);
+  const sourceScoreBands = isRecord(source.scoreBands) ? source.scoreBands : {};
+  const fallbackScoreBands: Partial<Record<ScoreName, ScoreBand>> = fallback.scoreBands ?? {};
+  const scoreBands = scoreNames.reduce((result, name) => {
+    const sourceBand = sourceScoreBands[name];
+    const fallbackBand = fallbackScoreBands[name];
+    result[name] = scoreBandNames.includes(sourceBand as ScoreBand)
+      ? sourceBand as ScoreBand
+      : fallbackBand && scoreBandNames.includes(fallbackBand)
+        ? fallbackBand
+        : getScoreBandFromNumber(scores[name]);
+    return result;
+  }, {} as Record<ScoreName, ScoreBand>);
+  const sourcePriority = source.improvementPriority as ImprovementPriority;
+  const improvementPriority = improvementPriorities.includes(sourcePriority)
+    ? sourcePriority
+    : fallback.improvementPriority;
 
   const sourceRecipe = isRecord(source.recipe) ? source.recipe : {};
   const sourceVerdict = isRecord(source.verdict) ? source.verdict : {};
@@ -128,6 +155,11 @@ export function mergeAiReportWithFallback(candidate: unknown, fallback: Report, 
   return {
     overall: sanitizeUserFacingText(source.overall, fallback.overall),
     scores,
+    scoreBands,
+    scoreVersion: typeof source.scoreVersion === 'string' && source.scoreVersion.trim()
+      ? source.scoreVersion.trim()
+      : fallback.scoreVersion,
+    improvementPriority,
     composition: sanitizeUserFacingText(source.composition, fallback.composition),
     lighting: sanitizeUserFacingText(source.lighting, fallback.lighting),
     colour: sanitizeUserFacingText(source.colour, fallback.colour),

@@ -4,6 +4,7 @@ import type {
   AnalysisState,
   Genre,
   HistoryRecord,
+  ImprovementPriority,
   Medium,
   NextShootingAdvice,
   PhotoSpecificFeedback,
@@ -12,6 +13,7 @@ import type {
   ReportSource,
   ReportVerdict,
   ReviewContext,
+  ScoreBand,
   ScoreName,
   SkillLevel,
 } from './types/report';
@@ -333,7 +335,18 @@ const skillTooltips: Record<SkillLevel, string> = {
 const scoreNames: ScoreName[] = ['构图', '光线', '色彩', '叙事', '技术完成度'];
 const HISTORY_STORAGE_KEY = 'photosense_history_records';
 const HISTORY_SCHEMA_VERSION_KEY = 'photosense_history_schema_version';
-const HISTORY_SCHEMA_VERSION = '2';
+const HISTORY_SCHEMA_VERSION = '3';
+const CURRENT_SCORE_VERSION = 'v3';
+const NO_SIGNIFICANT_ISSUE = '未发现影响画面成立的明显问题。';
+const scoreBandValues: Record<ScoreBand, number> = {
+  作品级: 95,
+  强: 85,
+  成立: 75,
+  普通: 65,
+  偏弱: 50,
+  严重问题: 35,
+};
+const scoreBandNames = Object.keys(scoreBandValues) as ScoreBand[];
 const MAX_HISTORY_RECORDS = 20;
 const DEFAULT_ANALYSIS_API_URL = '/api/analyze-photo';
 const ANALYSIS_REQUEST_TIMEOUT_MS = 100_000;
@@ -438,6 +451,41 @@ function normalizeSkillLevel(value: unknown): SkillLevel {
   return value === '进阶水平' || value === '进阶' || value === '高级' ? '进阶水平' : '爱好者水平';
 }
 
+function getScoreBandFromNumber(value: number): ScoreBand {
+  if (value >= 90) return '作品级';
+  if (value >= 80) return '强';
+  if (value >= 70) return '成立';
+  if (value >= 60) return '普通';
+  if (value >= 45) return '偏弱';
+  return '严重问题';
+}
+
+function getScoreBands(report: Report): Record<ScoreName, ScoreBand> {
+  return scoreNames.reduce((result, name) => {
+    const storedBand = report.scoreBands?.[name];
+    result[name] = storedBand && scoreBandNames.includes(storedBand)
+      ? storedBand
+      : getScoreBandFromNumber(report.scores[name]);
+    return result;
+  }, {} as Record<ScoreName, ScoreBand>);
+}
+
+function getReportImprovementPriority(report: Report): ImprovementPriority {
+  if (report.improvementPriority && ['none', 'optional', 'material', 'critical'].includes(report.improvementPriority)) {
+    return report.improvementPriority;
+  }
+
+  const weakestScore = Math.min(...scoreNames.map((name) => report.scores[name]));
+  if (weakestScore >= 85) return 'none';
+  if (weakestScore >= 75) return 'optional';
+  if (weakestScore >= 50) return 'material';
+  return 'critical';
+}
+
+function getHistoryScoreVersion(record: HistoryRecord) {
+  return record.scoreVersion || record.report.scoreVersion || 'v2';
+}
+
 const hobbyistLanguageReplacements: Array<[string, string]> = [
   [' EV', ''],
   ['动态范围', '亮暗细节范围'],
@@ -502,6 +550,10 @@ function sanitizeUserFacingText(value: string | undefined, fallback: string) {
 }
 
 function getSafeVerdictTitle(report: Report, genre: Genre) {
+  const improvementPriority = getReportImprovementPriority(report);
+  if (improvementPriority === 'none') return '画面完成度高，当前处理已经成立';
+  if (improvementPriority === 'optional') return '整体表现稳定，可按创作意图微调';
+
   const weakest = getScoreSummary(report).weakest.name;
   const byGenre: Partial<Record<Genre, string>> = {
     人像摄影: '人物状态可读，背景仍可收紧',
@@ -523,7 +575,6 @@ function getSafeVerdictTitle(report: Report, genre: Genre) {
 }
 
 function createMockReport(genre: Genre, skillLevel: SkillLevel, medium: Medium): Report {
-  const scoreShift = skillLevel === '爱好者水平' ? 6 : 0;
   const reviewContext = getReviewContext(medium, genre, skillLevel);
   const baseScores: Record<ScoreName, number> = {
     构图: 72,
@@ -545,14 +596,21 @@ function createMockReport(genre: Genre, skillLevel: SkillLevel, medium: Medium):
     胶片摄影: { 色彩: 1, 叙事: 1, 技术完成度: -1 },
   };
   const mockScores = scoreNames.reduce((scores, name) => {
-    const rawScore = baseScores[name] + scoreShift + (genreScoreShift[genre][name] ?? 0) + (mediumScoreShift[medium][name] ?? 0);
+    const rawScore = baseScores[name] + (genreScoreShift[genre][name] ?? 0) + (mediumScoreShift[medium][name] ?? 0);
     scores[name] = Math.max(0, Math.min(100, rawScore));
     return scores;
   }, {} as Record<ScoreName, number>);
+  const mockScoreBands = scoreNames.reduce((bands, name) => {
+    bands[name] = getScoreBandFromNumber(mockScores[name]);
+    return bands;
+  }, {} as Record<ScoreName, ScoreBand>);
 
   const report: Report = {
     overall: `${genreGuidance[genre]} ${mediumGuidance[medium]} 当前画面已经有可读的视觉核心，下一步应强化观看顺序：先让主体更快被识别，再保留次要信息作为层次。${levelGuidance[skillLevel]}`,
     scores: mockScores,
+    scoreBands: mockScoreBands,
+    scoreVersion: CURRENT_SCORE_VERSION,
+    improvementPriority: 'material',
     composition: `结论：主体区域已成立，但边缘仍有干扰。说明：${genre}需要更清楚的视觉入口。方向：收紧裁切或移动机位，让主体和留白关系更稳定。`,
     lighting:
       '结论：光线方向可读，但中间调还不够集中。说明：高光已能引导视线，暗部需要保留层次。方向：轻微回收高光，并用局部提亮托出主体。',
@@ -673,14 +731,16 @@ function getCoreDiagnosis(report: Report, genre: Genre) {
 
 function getReportVerdict(report: Report, genre: Genre): ReportVerdict {
   const coreDiagnosis = getCoreDiagnosis(report, genre);
+  const improvementPriority = getReportImprovementPriority(report);
+  const hasNoSignificantIssue = improvementPriority === 'none';
   const safeTitle = getSafeVerdictTitle(report, genre);
   const safeSummary = firstSentences(report.overall) || coreDiagnosis.strength;
   const fallback = {
     title: safeTitle,
     summary: containsInternalMetaLanguage(safeSummary) ? '画面已经具备可读的视觉基础，但观看路径和信息取舍仍可继续整理。' : safeSummary,
-    mainIssue: coreDiagnosis.problem,
-    nextStep: coreDiagnosis.direction,
-    tags: getProblemTags(report),
+    mainIssue: hasNoSignificantIssue ? NO_SIGNIFICANT_ISSUE : coreDiagnosis.problem,
+    nextStep: hasNoSignificantIssue ? '保持当前画面关系；如需调整，只按个人表达做轻微尝试。' : coreDiagnosis.direction,
+    tags: hasNoSignificantIssue ? ['完成度稳定', '保持当前处理'] : getProblemTags(report),
   };
 
   if (report.verdict?.title && report.verdict.summary && report.verdict.mainIssue && report.verdict.nextStep) {
@@ -689,8 +749,8 @@ function getReportVerdict(report: Report, genre: Genre): ReportVerdict {
     return {
       title: title.length > 28 ? fallback.title : title,
       summary: sanitizeUserFacingText(report.verdict.summary, fallback.summary),
-      mainIssue: sanitizeUserFacingText(report.verdict.mainIssue, fallback.mainIssue),
-      nextStep: sanitizeUserFacingText(report.verdict.nextStep, fallback.nextStep),
+      mainIssue: hasNoSignificantIssue ? fallback.mainIssue : sanitizeUserFacingText(report.verdict.mainIssue, fallback.mainIssue),
+      nextStep: hasNoSignificantIssue ? fallback.nextStep : sanitizeUserFacingText(report.verdict.nextStep, fallback.nextStep),
       tags: (() => {
         const safeTags = report.verdict?.tags?.filter((tag) => !containsInternalMetaLanguage(tag)).slice(0, 3) ?? [];
         return safeTags.length ? safeTags : fallback.tags;
@@ -703,6 +763,7 @@ function getReportVerdict(report: Report, genre: Genre): ReportVerdict {
 
 function getPhotoSpecificFeedback(report: Report, genre: Genre): PhotoSpecificFeedback {
   const verdict = getReportVerdict(report, genre);
+  const hasNoSignificantIssue = getReportImprovementPriority(report) === 'none';
   const weakest = getScoreSummary(report).weakest.name;
   const affectedAreaByDimension: Record<ScoreName, string> = {
     构图: '主体周围与画面边缘',
@@ -713,13 +774,13 @@ function getPhotoSpecificFeedback(report: Report, genre: Genre): PhotoSpecificFe
   };
   const fallback: PhotoSpecificFeedback = {
     strength: getCoreDiagnosis(report, genre).strength,
-    priorityIssue: verdict.mainIssue,
-    affectedArea: affectedAreaByDimension[weakest],
+    priorityIssue: hasNoSignificantIssue ? NO_SIGNIFICANT_ISSUE : verdict.mainIssue,
+    affectedArea: hasNoSignificantIssue ? '不适用' : affectedAreaByDimension[weakest],
     nextAction: verdict.nextStep,
     crop: {
-      ratio: report.recipe.cropRatio || '保持当前比例',
-      direction: '从干扰较明显的边缘轻微收紧',
-      rationale: getPostProcessingAdvice(report).crop.reason,
+      ratio: hasNoSignificantIssue ? '保持当前比例' : report.recipe.cropRatio || '保持当前比例',
+      direction: hasNoSignificantIssue ? '不建议为修正问题而裁切' : '从干扰较明显的边缘轻微收紧',
+      rationale: hasNoSignificantIssue ? '当前构图关系已经成立，裁切只应服务于个人表达偏好。' : getPostProcessingAdvice(report).crop.reason,
     },
   };
   const source = report.photoSpecific;
@@ -728,13 +789,13 @@ function getPhotoSpecificFeedback(report: Report, genre: Genre): PhotoSpecificFe
 
   return {
     strength: sanitizeUserFacingText(source.strength, fallback.strength),
-    priorityIssue: sanitizeUserFacingText(source.priorityIssue, fallback.priorityIssue),
-    affectedArea: sanitizeUserFacingText(source.affectedArea, fallback.affectedArea),
-    nextAction: sanitizeUserFacingText(source.nextAction, fallback.nextAction),
+    priorityIssue: hasNoSignificantIssue ? fallback.priorityIssue : sanitizeUserFacingText(source.priorityIssue, fallback.priorityIssue),
+    affectedArea: hasNoSignificantIssue ? fallback.affectedArea : sanitizeUserFacingText(source.affectedArea, fallback.affectedArea),
+    nextAction: hasNoSignificantIssue ? fallback.nextAction : sanitizeUserFacingText(source.nextAction, fallback.nextAction),
     crop: {
-      ratio: sanitizeUserFacingText(source.crop?.ratio, fallback.crop.ratio),
-      direction: sanitizeUserFacingText(source.crop?.direction, fallback.crop.direction),
-      rationale: sanitizeUserFacingText(source.crop?.rationale, fallback.crop.rationale),
+      ratio: hasNoSignificantIssue ? fallback.crop.ratio : sanitizeUserFacingText(source.crop?.ratio, fallback.crop.ratio),
+      direction: hasNoSignificantIssue ? fallback.crop.direction : sanitizeUserFacingText(source.crop?.direction, fallback.crop.direction),
+      rationale: hasNoSignificantIssue ? fallback.crop.rationale : sanitizeUserFacingText(source.crop?.rationale, fallback.crop.rationale),
     },
   };
 }
@@ -807,6 +868,10 @@ function getScoreSummary(report: Report) {
 }
 
 function getProblemTags(report: Report) {
+  if (getReportImprovementPriority(report) === 'none') {
+    return ['完成度稳定'];
+  }
+
   const weakest = getScoreSummary(report).weakest.name;
   const tags: string[] = ['边缘干扰'];
 
@@ -1088,11 +1153,13 @@ function loadStoredHistoryRecords(): HistoryRecord[] {
   }
 
   try {
-    if (window.localStorage.getItem(HISTORY_SCHEMA_VERSION_KEY) !== HISTORY_SCHEMA_VERSION) {
+    const storedSchemaVersion = window.localStorage.getItem(HISTORY_SCHEMA_VERSION_KEY);
+    if (storedSchemaVersion !== '2' && storedSchemaVersion !== HISTORY_SCHEMA_VERSION) {
       window.localStorage.removeItem(HISTORY_STORAGE_KEY);
       window.localStorage.setItem(HISTORY_SCHEMA_VERSION_KEY, HISTORY_SCHEMA_VERSION);
       return [];
     }
+    window.localStorage.setItem(HISTORY_SCHEMA_VERSION_KEY, HISTORY_SCHEMA_VERSION);
 
     const storedValue = window.localStorage.getItem(HISTORY_STORAGE_KEY);
 
@@ -1114,7 +1181,20 @@ function loadStoredHistoryRecords(): HistoryRecord[] {
         const skillLevel = normalizeSkillLevel(record.skillLevel ?? record.critiqueLevel);
         const fallbackReport = createMockReport(genre, skillLevel, medium);
         const mergedReport = mergeAiReportWithFallback(record.report, fallbackReport, getReviewContext(medium, genre, skillLevel));
-        const report = skillLevel === '爱好者水平' ? simplifyHobbyistValue(mergedReport) as Report : mergedReport;
+        const scoreVersion = typeof record.scoreVersion === 'string'
+          ? record.scoreVersion
+          : typeof record.report?.scoreVersion === 'string'
+            ? record.report.scoreVersion
+            : storedSchemaVersion === '2'
+              ? 'v2'
+              : CURRENT_SCORE_VERSION;
+        const normalizedReport = skillLevel === '爱好者水平' ? simplifyHobbyistValue(mergedReport) as Report : mergedReport;
+        const report: Report = {
+          ...normalizedReport,
+          scoreVersion,
+          scoreBands: scoreVersion === CURRENT_SCORE_VERSION ? normalizedReport.scoreBands : undefined,
+          improvementPriority: scoreVersion === CURRENT_SCORE_VERSION ? normalizedReport.improvementPriority : undefined,
+        };
         const createdAt = typeof record.createdAt === 'string' ? record.createdAt : new Date().toISOString();
 
         return {
@@ -1132,6 +1212,7 @@ function loadStoredHistoryRecords(): HistoryRecord[] {
           createdAt,
           report,
           reportSource: getReportSource(record.reportSource),
+          scoreVersion,
           analysisError: typeof record.analysisError === 'string' ? record.analysisError : undefined,
           overallScore: typeof record.overallScore === 'number' ? record.overallScore : getOverallScore(report),
           tags: Array.isArray(record.tags) ? record.tags : getHistoryTags(genre, skillLevel, medium),
@@ -1436,6 +1517,7 @@ function App() {
     }).format(now);
     const dimensions = getScoreSummaryDimensions(nextReport);
     const coreDiagnosis = getCoreDiagnosis(nextReport, selectedGenre);
+    const reportVerdict = getReportVerdict(nextReport, selectedGenre);
     const nextRecord: HistoryRecord = {
       id: `${Date.now()}`,
       title: photoTitle.trim() || getFallbackHistoryTitle(selectedGenre),
@@ -1451,10 +1533,11 @@ function App() {
       createdAt,
       report: nextReport,
       reportSource,
+      scoreVersion: nextReport.scoreVersion ?? CURRENT_SCORE_VERSION,
       analysisError,
       overallScore: getOverallScore(nextReport),
       tags: [...getHistoryTags(selectedGenre, skillLevel, selectedMedium), ...getProblemTags(nextReport).slice(0, 1)],
-      summary: coreDiagnosis.direction,
+      summary: getReportImprovementPriority(nextReport) === 'none' ? reportVerdict.summary : coreDiagnosis.direction,
       strongestDimension: dimensions.strongestDimension,
       weakestDimension: dimensions.weakestDimension,
     };
@@ -1529,6 +1612,9 @@ function App() {
     const nextShooting = getNextShootingActions(reportToCopy, reportGenre);
     const scoreReasons = getScoreReasons(reportToCopy);
     const photoSpecific = getPhotoSpecificFeedback(reportToCopy, reportGenre);
+    const improvementPriority = getReportImprovementPriority(reportToCopy);
+    const issueLabel = improvementPriority === 'none' ? '当前判断' : improvementPriority === 'optional' ? '可选优化' : '主要问题';
+    const priorityIssueLabel = improvementPriority === 'none' ? '当前判断' : improvementPriority === 'optional' ? '可选优化' : '优先问题';
     const scoreText = scoreNames.map((name) => `${name}：${reportToCopy.scores[name]}/100\n评分依据：${scoreReasons[name]}`).join('\n');
     const postProcessingText = [
       `1. 裁剪建议：${postProcessing.crop.suggestion}\n理由：${postProcessing.crop.reason}\n预期效果：${postProcessing.crop.expectedEffect}`,
@@ -1537,7 +1623,7 @@ function App() {
     ].join('\n');
     const nextShootingText = [nextShooting.summary, ...nextShooting.items.map((item, index) => `${index + 1}. ${item}`)].join('\n');
 
-    const text = `PhotoSense AI 摄影评审报告\n影像介质：${reportMedium}\n摄影题材：${reportGenre}\n评价水平：${reportSkillLevel}\n\n本次评价基准\n影像介质：${reviewContext.mediumFocus}\n评价水平：${reviewContext.levelFocus}\n摄影题材：${reviewContext.genreFocus}\n评分侧重：${reviewContext.scoringLogic}\n\n评审结论\n${reportVerdict.title}\n${reportVerdict.summary}\n主要问题：${reportVerdict.mainIssue}\n下一步：${reportVerdict.nextStep}\n\n照片重点\n值得保留：${photoSpecific.strength}\n优先问题：${photoSpecific.priorityIssue}\n画面区域：${photoSpecific.affectedArea}\n下一步动作：${photoSpecific.nextAction}\n裁剪参考：${photoSpecific.crop.ratio}，${photoSpecific.crop.direction}\n裁剪理由：${photoSpecific.crop.rationale}\n\n总体印象\n${reportToCopy.overall}\n\n评分\n${scoreText}\n\n构图分析\n${reportToCopy.composition}\n\n光线分析\n${reportToCopy.lighting}\n\n色彩分析\n${reportToCopy.colour}\n\n叙事分析\n${reportToCopy.storytelling}\n\n技术完成度\n${reportToCopy.technical}\n\n后期建议\n${postProcessingText}\n\n下次拍摄建议\n${nextShootingText}`;
+    const text = `PhotoSense AI 摄影评审报告\n影像介质：${reportMedium}\n摄影题材：${reportGenre}\n评价水平：${reportSkillLevel}\n评分标准：${reportToCopy.scoreVersion ?? 'v2'}\n\n本次评价基准\n影像介质：${reviewContext.mediumFocus}\n评价水平：${reviewContext.levelFocus}\n摄影题材：${reviewContext.genreFocus}\n评分侧重：${reviewContext.scoringLogic}\n\n评审结论\n${reportVerdict.title}\n${reportVerdict.summary}\n${issueLabel}：${reportVerdict.mainIssue}\n下一步：${reportVerdict.nextStep}\n\n照片重点\n值得保留：${photoSpecific.strength}\n${priorityIssueLabel}：${photoSpecific.priorityIssue}\n画面区域：${photoSpecific.affectedArea}\n下一步动作：${photoSpecific.nextAction}\n裁剪参考：${photoSpecific.crop.ratio}，${photoSpecific.crop.direction}\n裁剪理由：${photoSpecific.crop.rationale}\n\n总体印象\n${reportToCopy.overall}\n\n评分\n${scoreText}\n\n构图分析\n${reportToCopy.composition}\n\n光线分析\n${reportToCopy.lighting}\n\n色彩分析\n${reportToCopy.colour}\n\n叙事分析\n${reportToCopy.storytelling}\n\n技术完成度\n${reportToCopy.technical}\n\n后期建议\n${postProcessingText}\n\n下次拍摄建议\n${nextShootingText}`;
 
     try {
       if (navigator.clipboard) {
@@ -2356,9 +2442,13 @@ function ReportPage({
   const reviewContext = getResolvedReviewContext(displayedReport, displayedMedium, displayedGenre, displayedSkillLevel);
   const postProcessing = displayedReport ? getPostProcessingAdvice(displayedReport) : null;
   const scoreSummary = displayedReport ? getScoreSummary(displayedReport) : null;
+  const scoreBands = displayedReport ? getScoreBands(displayedReport) : null;
   const scoreReasons = displayedReport ? getScoreReasons(displayedReport) : null;
   const photoSpecific = displayedReport ? getPhotoSpecificFeedback(displayedReport, displayedGenre) : null;
   const nextActions = displayedReport ? getNextShootingActions(displayedReport, displayedGenre) : null;
+  const improvementPriority = displayedReport ? getReportImprovementPriority(displayedReport) : 'material';
+  const reportIssueLabel = improvementPriority === 'none' ? '当前判断' : improvementPriority === 'optional' ? '可选优化' : '主要问题';
+  const photoIssueLabel = improvementPriority === 'none' ? '当前判断' : improvementPriority === 'optional' ? '可选优化' : '最优先问题';
   const [activeReportSection, setActiveReportSection] = useState(reportNavItems[0].id);
   const [exportStatus, setExportStatus] = useState('');
   const [isExporting, setIsExporting] = useState(false);
@@ -2657,7 +2747,7 @@ function ReportPage({
                       </div>
                       <div className="report-verdict-notes">
                         <div>
-                          <span>主要问题</span>
+                          <span>{reportIssueLabel}</span>
                           <p>{reportVerdict.mainIssue}</p>
                         </div>
                         <div>
@@ -2674,9 +2764,9 @@ function ReportPage({
                         <strong>{scoreSummary.overall}<small>/100</small></strong>
                       </div>
                       <p className="report-score-context">
-                        基于{displayedMedium}、{displayedGenre}与{displayedSkillLevel}的学习参考
+                        基于{displayedMedium}、{displayedGenre}与{displayedSkillLevel}的学习参考 · {displayedReport.scoreVersion ?? '旧评分标准'}
                       </p>
-                      <RadarChart scores={displayedReport.scores} />
+                      <RadarChart scores={displayedReport.scores} improvementPriority={improvementPriority} />
                     </section>
                   ) : null}
                 </article>
@@ -2709,7 +2799,7 @@ function ReportPage({
                         <p>{photoSpecific.strength}</p>
                       </article>
                       <article>
-                        <span>最优先问题</span>
+                        <span>{photoIssueLabel}</span>
                         <p>{photoSpecific.priorityIssue}</p>
                       </article>
                       <article>
@@ -2732,17 +2822,19 @@ function ReportPage({
                 <section className="dimension-diagnosis" id="report-dimensions" aria-label="五项摄影诊断维度" data-report-page-block="true">
                 <SectionTitle icon="technical" eyebrow="诊断维度" title="评分、结论与行动建议" />
                 <div className="diagnosis-grid">
-                  <DiagnosticCard icon="composition" title="构图" score={displayedReport.scores['构图']} reason={scoreReasons?.['构图']} text={displayedReport.composition} priority={scoreSummary?.weakest.name === '构图'} />
-                  <DiagnosticCard icon="lighting" title="光线" score={displayedReport.scores['光线']} reason={scoreReasons?.['光线']} text={displayedReport.lighting} priority={scoreSummary?.weakest.name === '光线'} />
-                  <DiagnosticCard icon="colour" title="色彩" score={displayedReport.scores['色彩']} reason={scoreReasons?.['色彩']} text={displayedReport.colour} priority={scoreSummary?.weakest.name === '色彩'} />
-                  <DiagnosticCard icon="storytelling" title="叙事" score={displayedReport.scores['叙事']} reason={scoreReasons?.['叙事']} text={displayedReport.storytelling} priority={scoreSummary?.weakest.name === '叙事'} />
+                  <DiagnosticCard icon="composition" title="构图" score={displayedReport.scores['构图']} band={scoreBands?.['构图']} reason={scoreReasons?.['构图']} text={displayedReport.composition} priority={improvementPriority !== 'none' && scoreSummary?.weakest.name === '构图'} priorityLabel={improvementPriority === 'optional' ? '可选优化' : undefined} />
+                  <DiagnosticCard icon="lighting" title="光线" score={displayedReport.scores['光线']} band={scoreBands?.['光线']} reason={scoreReasons?.['光线']} text={displayedReport.lighting} priority={improvementPriority !== 'none' && scoreSummary?.weakest.name === '光线'} priorityLabel={improvementPriority === 'optional' ? '可选优化' : undefined} />
+                  <DiagnosticCard icon="colour" title="色彩" score={displayedReport.scores['色彩']} band={scoreBands?.['色彩']} reason={scoreReasons?.['色彩']} text={displayedReport.colour} priority={improvementPriority !== 'none' && scoreSummary?.weakest.name === '色彩'} priorityLabel={improvementPriority === 'optional' ? '可选优化' : undefined} />
+                  <DiagnosticCard icon="storytelling" title="叙事" score={displayedReport.scores['叙事']} band={scoreBands?.['叙事']} reason={scoreReasons?.['叙事']} text={displayedReport.storytelling} priority={improvementPriority !== 'none' && scoreSummary?.weakest.name === '叙事'} priorityLabel={improvementPriority === 'optional' ? '可选优化' : undefined} />
                   <DiagnosticCard
                     icon="technical"
                     title="技术完成度"
                     score={displayedReport.scores['技术完成度']}
+                    band={scoreBands?.['技术完成度']}
                     reason={scoreReasons?.['技术完成度']}
                     text={displayedReport.technical}
-                    priority={scoreSummary?.weakest.name === '技术完成度'}
+                    priority={improvementPriority !== 'none' && scoreSummary?.weakest.name === '技术完成度'}
+                    priorityLabel={improvementPriority === 'optional' ? '可选优化' : undefined}
                   />
                 </div>
                 </section>
@@ -2830,8 +2922,9 @@ function HistoryPage({ historyRecords, onDeleteRecord, onOpenRecord, onStartRevi
   const [endDate, setEndDate] = useState('');
   const [historySearch, setHistorySearch] = useState('');
   const [historySort, setHistorySort] = useState<HistorySort>('最新上传');
-  const averageScore = historyRecords.length
-    ? Math.round(historyRecords.reduce((sum, record) => sum + record.overallScore, 0) / historyRecords.length)
+  const currentScoreRecords = historyRecords.filter((record) => getHistoryScoreVersion(record) === CURRENT_SCORE_VERSION);
+  const averageScore = currentScoreRecords.length
+    ? Math.round(currentScoreRecords.reduce((sum, record) => sum + record.overallScore, 0) / currentScoreRecords.length)
     : 0;
   const currentMonthCount = countRecordsInCurrentMonth(historyRecords);
   const mediumFilterOptions: Array<Medium | '全部'> = ['全部', ...mediums];
@@ -2955,7 +3048,7 @@ function HistoryPage({ historyRecords, onDeleteRecord, onOpenRecord, onStartRevi
           </div>
           <div>
             <strong>{averageScore || '--'}</strong>
-            <span>全部平均</span>
+            <span>v3 平均</span>
           </div>
         </div>
 
@@ -3089,6 +3182,8 @@ function HistoryPage({ historyRecords, onDeleteRecord, onOpenRecord, onStartRevi
           const subject = record.subject ?? record.genre;
           const critiqueLevel = record.critiqueLevel ?? record.skillLevel;
           const isNewestRecord = historyRecords[0]?.id === record.id;
+          const scoreVersion = getHistoryScoreVersion(record);
+          const improvementPriority = getReportImprovementPriority(record.report);
 
           return (
             <article
@@ -3147,11 +3242,12 @@ function HistoryPage({ historyRecords, onDeleteRecord, onOpenRecord, onStartRevi
                       <span>{record.medium}</span>
                       <span>{critiqueLevel}</span>
                       <span>{subject}</span>
+                      <span>{scoreVersion === CURRENT_SCORE_VERSION ? 'v3 评分' : '旧评分标准'}</span>
                     </div>
                     <p className="history-card-summary">{record.summary || record.report.overall}</p>
                     <div className="history-priority-dimension">
-                      <span>优先改善</span>
-                      <strong>{record.weakestDimension || getScoreSummary(record.report).weakest.name}</strong>
+                      <span>{improvementPriority === 'none' ? '当前状态' : improvementPriority === 'optional' ? '可选优化' : '优先改善'}</span>
+                      <strong>{improvementPriority === 'none' ? '无需优先修正' : record.weakestDimension || getScoreSummary(record.report).weakest.name}</strong>
                     </div>
                   </div>
                   <div className="history-score-badge" aria-label={`评分 ${record.overallScore}`}>
@@ -3176,7 +3272,7 @@ function HistoryPage({ historyRecords, onDeleteRecord, onOpenRecord, onStartRevi
 
 function HistoryComparison({ first, second, onClose }: { first: HistoryRecord; second: HistoryRecord; onClose: () => void }) {
   const comparison = compareHistoryRecords(first, second);
-  const formatDelta = (delta: number) => (delta > 0 ? `+${delta}` : `${delta}`);
+  const formatDelta = (delta: number | null) => delta === null ? '—' : delta > 0 ? `+${delta}` : `${delta}`;
 
   return (
     <section className="history-comparison" aria-labelledby="history-comparison-title">
@@ -3209,16 +3305,18 @@ function HistoryComparison({ first, second, onClose }: { first: HistoryRecord; s
         ))}
       </div>
 
+      {!comparison.isComparable ? <p className="comparison-version-note" role="status">{comparison.comparisonReason}</p> : null}
+
       <div className="comparison-highlights">
         <article>
           <span>综合评分变化</span>
-          <strong className={comparison.totalDelta > 0 ? 'is-positive' : comparison.totalDelta < 0 ? 'is-negative' : ''}>
+          <strong className={comparison.totalDelta !== null && comparison.totalDelta > 0 ? 'is-positive' : comparison.totalDelta !== null && comparison.totalDelta < 0 ? 'is-negative' : ''}>
             {formatDelta(comparison.totalDelta)}
           </strong>
         </article>
         <article>
-          <span>{comparison.hasImprovement ? '提升最多维度' : '变化最大维度'}</span>
-          <strong>{comparison.mostImproved.name} {formatDelta(comparison.mostImproved.delta)}</strong>
+          <span>{comparison.isComparable ? comparison.hasImprovement ? '提升最多维度' : '变化最大维度' : '分数对比'}</span>
+          <strong>{comparison.mostImproved ? `${comparison.mostImproved.name} ${formatDelta(comparison.mostImproved.delta)}` : '评分标准不同'}</strong>
         </article>
         <article>
           <span>当前优先练习</span>
@@ -3236,7 +3334,7 @@ function HistoryComparison({ first, second, onClose }: { first: HistoryRecord; s
             <strong>{item.name}</strong>
             <span>{item.olderScore}</span>
             <span>{item.newerScore}</span>
-            <em className={item.delta > 0 ? 'is-positive' : item.delta < 0 ? 'is-negative' : ''}>{formatDelta(item.delta)}</em>
+            <em className={item.delta !== null && item.delta > 0 ? 'is-positive' : item.delta !== null && item.delta < 0 ? 'is-negative' : ''}>{formatDelta(item.delta)}</em>
           </div>
         ))}
       </div>
@@ -3336,7 +3434,7 @@ function SectionTitle({
   );
 }
 
-function RadarChart({ scores }: { scores: Record<ScoreName, number> }) {
+function RadarChart({ scores, improvementPriority }: { scores: Record<ScoreName, number>; improvementPriority: ImprovementPriority }) {
   const center = 96;
   const maxRadius = 62;
   const labelRadius = 82;
@@ -3391,7 +3489,12 @@ function RadarChart({ scores }: { scores: Record<ScoreName, number> }) {
       </div>
       <div className="radar-legend-list">
         {scoreEntries.map((item) => {
-          const status = item.name === strongest.name ? '优势项' : item.name === weakest.name ? '待优化' : '';
+          const weakestStatus = improvementPriority === 'none'
+            ? '已成立'
+            : improvementPriority === 'optional'
+              ? '可选优化'
+              : '待优化';
+          const status = item.name === strongest.name ? '优势项' : item.name === weakest.name ? weakestStatus : '';
 
           return (
             <div className="radar-legend-row" key={item.name}>
@@ -3399,7 +3502,7 @@ function RadarChart({ scores }: { scores: Record<ScoreName, number> }) {
                 <span>{item.name}</span>
                 <strong>{item.score}</strong>
               </div>
-              {status ? <em className={status === '优势项' ? 'is-strong' : 'is-weak'}>{status}</em> : null}
+              {status ? <em className={status === '待优化' ? 'is-weak' : 'is-strong'}>{status}</em> : null}
             </div>
           );
         })}
@@ -3432,16 +3535,20 @@ function DiagnosticCard({
   icon,
   title,
   score,
+  band,
   reason,
   text,
   priority = false,
+  priorityLabel,
 }: {
   icon: IconName;
   title: string;
   score: number;
+  band?: ScoreBand;
   reason?: string;
   text: string;
   priority?: boolean;
+  priorityLabel?: string;
 }) {
   const parts = parseDiagnosticText(text);
   const [isOpen, setIsOpen] = useResponsiveDisclosure(priority);
@@ -3449,8 +3556,8 @@ function DiagnosticCard({
   return (
     <details className={`diagnostic-card ${priority ? 'is-priority' : ''}`} open={isOpen} onToggle={(event) => setIsOpen(event.currentTarget.open)}>
       <summary className="diagnostic-card-head">
-        <SectionTitle icon={icon} eyebrow={priority ? '优先处理' : '诊断模块'} title={title} level="h3" />
-        <strong>{score}</strong>
+        <SectionTitle icon={icon} eyebrow={priority ? priorityLabel ?? '优先处理' : '诊断模块'} title={title} level="h3" />
+        <strong>{score}{band ? <small>{band}</small> : null}</strong>
       </summary>
       <dl className="diagnostic-card-content">
         {reason ? (
