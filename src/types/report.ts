@@ -6,6 +6,10 @@ export type SkillLevel = '爱好者水平' | '进阶水平';
 
 export type ScoreName = '构图' | '光线' | '色彩' | '叙事' | '技术完成度';
 
+export type ScoreBand = '作品级' | '强' | '成立' | '普通' | '偏弱' | '严重问题';
+
+export type ImprovementPriority = 'none' | 'optional' | 'material' | 'critical';
+
 export type ReportSource = 'ai' | 'mock' | 'legacy';
 
 export type AnalysisPhase = 'preparing' | 'connecting' | 'analyzing' | 'formatting';
@@ -79,6 +83,9 @@ export type PhotoSpecificFeedback = {
 export type Report = {
   overall: string;
   scores: Record<ScoreName, number>;
+  scoreBands?: Record<ScoreName, ScoreBand>;
+  scoreVersion?: string;
+  improvementPriority?: ImprovementPriority;
   composition: string;
   lighting: string;
   colour: string;
@@ -122,6 +129,7 @@ export type HistoryRecord = {
   createdAt: string;
   report: Report;
   reportSource: ReportSource;
+  scoreVersion?: string;
   analysisError?: string;
   overallScore: number;
   tags: string[];

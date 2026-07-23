@@ -7085,7 +7085,23 @@ body::before {
 }
 
 .page-report .diagnostic-card-head > strong {
+  display: grid;
+  justify-items: end;
   font-size: clamp(2.4rem, 2.8vw, 3.6rem);
+}
+
+.page-report .diagnostic-card-head > strong small {
+  color: rgba(243, 196, 55, 0.72);
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+.comparison-version-note {
+  margin: 1rem 0;
+  padding: 0.85rem 1rem;
+  border-left: 3px solid var(--accent);
+  background: rgba(181, 76, 42, 0.08);
 }
 
 .page-report .diagnostic-card dl {

@@ -7,6 +7,10 @@ function getTimestamp(record: HistoryRecord) {
   return Number.isFinite(timestamp) ? timestamp : 0;
 }
 
+function getScoreVersion(record: HistoryRecord) {
+  return record.scoreVersion || record.report.scoreVersion || 'v2';
+}
+
 function getPriorityIssue(record: HistoryRecord) {
   return record.report.photoSpecific?.priorityIssue
     || record.report.verdict?.mainIssue
@@ -23,25 +27,36 @@ function getPracticeAction(record: HistoryRecord) {
 
 export function compareHistoryRecords(first: HistoryRecord, second: HistoryRecord) {
   const [older, newer] = getTimestamp(first) <= getTimestamp(second) ? [first, second] : [second, first];
-  const dimensions = scoreNames.map((name) => ({
+  const olderScoreVersion = getScoreVersion(older);
+  const newerScoreVersion = getScoreVersion(newer);
+  const isComparable = olderScoreVersion === newerScoreVersion;
+  const scoredDimensions = scoreNames.map((name) => ({
     name,
     olderScore: older.report.scores[name],
     newerScore: newer.report.scores[name],
     delta: newer.report.scores[name] - older.report.scores[name],
   }));
-  const improvements = dimensions.filter((item) => item.delta > 0);
-  const mostImproved = improvements.length
-    ? improvements.reduce((best, item) => (item.delta > best.delta ? item : best), improvements[0])
-    : dimensions.reduce((largest, item) => (Math.abs(item.delta) > Math.abs(largest.delta) ? item : largest), dimensions[0]);
-  const practicePriority = dimensions.reduce((lowest, item) => (item.newerScore < lowest.newerScore ? item : lowest), dimensions[0]);
+  const dimensions = scoredDimensions.map((item) => ({
+    ...item,
+    delta: isComparable ? item.delta : null,
+  }));
+  const improvements = isComparable ? scoredDimensions.filter((item) => item.delta > 0) : [];
+  const mostImproved = !isComparable
+    ? null
+    : improvements.length
+      ? improvements.reduce((best, item) => (item.delta > best.delta ? item : best), improvements[0])
+      : scoredDimensions.reduce((largest, item) => (Math.abs(item.delta) > Math.abs(largest.delta) ? item : largest), scoredDimensions[0]);
+  const practicePriority = scoredDimensions.reduce((lowest, item) => (item.newerScore < lowest.newerScore ? item : lowest), scoredDimensions[0]);
 
   return {
     older,
     newer,
-    totalDelta: newer.overallScore - older.overallScore,
+    isComparable,
+    comparisonReason: isComparable ? '' : `评分标准不同（${olderScoreVersion} / ${newerScoreVersion}），仅并列展示，不计算分数变化。`,
+    totalDelta: isComparable ? newer.overallScore - older.overallScore : null,
     dimensions,
     mostImproved,
-    hasImprovement: improvements.length > 0,
+    hasImprovement: isComparable && improvements.length > 0,
     practicePriority,
     olderIssue: getPriorityIssue(older),
     newerIssue: getPriorityIssue(newer),
