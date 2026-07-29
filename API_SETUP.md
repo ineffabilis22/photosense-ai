@@ -1,4 +1,4 @@
-# 分析 API 配置
+# PhotoSense AI v1.0 分析 API 配置
 
 先把 `.env.example` 复制为 `.env`。OpenAI-compatible 图片分析接口的最小配置如下：
 

@@ -336,17 +336,9 @@ const scoreNames: ScoreName[] = ['构图', '光线', '色彩', '叙事', '技术
 const HISTORY_STORAGE_KEY = 'photosense_history_records';
 const HISTORY_SCHEMA_VERSION_KEY = 'photosense_history_schema_version';
 const HISTORY_SCHEMA_VERSION = '3';
+const PRODUCT_VERSION = '1.0';
 const CURRENT_SCORE_VERSION = 'v3';
 const NO_SIGNIFICANT_ISSUE = '未发现影响画面成立的明显问题。';
-const scoreBandValues: Record<ScoreBand, number> = {
-  作品级: 95,
-  强: 85,
-  成立: 75,
-  普通: 65,
-  偏弱: 50,
-  严重问题: 35,
-};
-const scoreBandNames = Object.keys(scoreBandValues) as ScoreBand[];
 const MAX_HISTORY_RECORDS = 20;
 const DEFAULT_ANALYSIS_API_URL = '/api/analyze-photo';
 const ANALYSIS_REQUEST_TIMEOUT_MS = 100_000;
@@ -458,16 +450,6 @@ function getScoreBandFromNumber(value: number): ScoreBand {
   if (value >= 60) return '普通';
   if (value >= 45) return '偏弱';
   return '严重问题';
-}
-
-function getScoreBands(report: Report): Record<ScoreName, ScoreBand> {
-  return scoreNames.reduce((result, name) => {
-    const storedBand = report.scoreBands?.[name];
-    result[name] = storedBand && scoreBandNames.includes(storedBand)
-      ? storedBand
-      : getScoreBandFromNumber(report.scores[name]);
-    return result;
-  }, {} as Record<ScoreName, ScoreBand>);
 }
 
 function getReportImprovementPriority(report: Report): ImprovementPriority {
@@ -1237,7 +1219,7 @@ async function syncReportHistoryToProject(historyRecords: HistoryRecord[]) {
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      app: 'PhotoSense AI',
+      app: `PhotoSense AI v${PRODUCT_VERSION}`,
       exportedAt: new Date().toISOString(),
       recordCount: historyRecords.length,
       records: historyRecords,
@@ -1623,7 +1605,7 @@ function App() {
     ].join('\n');
     const nextShootingText = [nextShooting.summary, ...nextShooting.items.map((item, index) => `${index + 1}. ${item}`)].join('\n');
 
-    const text = `PhotoSense AI 摄影评审报告\n影像介质：${reportMedium}\n摄影题材：${reportGenre}\n评价水平：${reportSkillLevel}\n评分标准：${reportToCopy.scoreVersion ?? 'v2'}\n\n本次评价基准\n影像介质：${reviewContext.mediumFocus}\n评价水平：${reviewContext.levelFocus}\n摄影题材：${reviewContext.genreFocus}\n评分侧重：${reviewContext.scoringLogic}\n\n评审结论\n${reportVerdict.title}\n${reportVerdict.summary}\n${issueLabel}：${reportVerdict.mainIssue}\n下一步：${reportVerdict.nextStep}\n\n照片重点\n值得保留：${photoSpecific.strength}\n${priorityIssueLabel}：${photoSpecific.priorityIssue}\n画面区域：${photoSpecific.affectedArea}\n下一步动作：${photoSpecific.nextAction}\n裁剪参考：${photoSpecific.crop.ratio}，${photoSpecific.crop.direction}\n裁剪理由：${photoSpecific.crop.rationale}\n\n总体印象\n${reportToCopy.overall}\n\n评分\n${scoreText}\n\n构图分析\n${reportToCopy.composition}\n\n光线分析\n${reportToCopy.lighting}\n\n色彩分析\n${reportToCopy.colour}\n\n叙事分析\n${reportToCopy.storytelling}\n\n技术完成度\n${reportToCopy.technical}\n\n后期建议\n${postProcessingText}\n\n下次拍摄建议\n${nextShootingText}`;
+    const text = `PhotoSense AI v${PRODUCT_VERSION} 摄影评审报告\n影像介质：${reportMedium}\n摄影题材：${reportGenre}\n评价水平：${reportSkillLevel}\n评分标准：${reportToCopy.scoreVersion ?? 'v2'}\n\n本次评价基准\n影像介质：${reviewContext.mediumFocus}\n评价水平：${reviewContext.levelFocus}\n摄影题材：${reviewContext.genreFocus}\n评分侧重：${reviewContext.scoringLogic}\n\n评审结论\n${reportVerdict.title}\n${reportVerdict.summary}\n${issueLabel}：${reportVerdict.mainIssue}\n下一步：${reportVerdict.nextStep}\n\n照片重点\n值得保留：${photoSpecific.strength}\n${priorityIssueLabel}：${photoSpecific.priorityIssue}\n画面区域：${photoSpecific.affectedArea}\n下一步动作：${photoSpecific.nextAction}\n裁剪参考：${photoSpecific.crop.ratio}，${photoSpecific.crop.direction}\n裁剪理由：${photoSpecific.crop.rationale}\n\n总体印象\n${reportToCopy.overall}\n\n评分\n${scoreText}\n\n构图分析\n${reportToCopy.composition}\n\n光线分析\n${reportToCopy.lighting}\n\n色彩分析\n${reportToCopy.colour}\n\n叙事分析\n${reportToCopy.storytelling}\n\n技术完成度\n${reportToCopy.technical}\n\n后期建议\n${postProcessingText}\n\n下次拍摄建议\n${nextShootingText}`;
 
     try {
       if (navigator.clipboard) {
@@ -1670,8 +1652,8 @@ function App() {
     <div className="app-shell">
       <a className="skip-link" href="#main-content">跳到主要内容</a>
       <header className="site-header">
-        <button className="brand brand-button" type="button" onClick={() => goToPage('home')} aria-label="PhotoSense AI 首页">
-          <span className="brand-text">PhotoSense AI</span>
+        <button className="brand brand-button" type="button" onClick={() => goToPage('home')} aria-label={`PhotoSense AI v${PRODUCT_VERSION} 首页`}>
+          <span className="brand-text">PhotoSense AI · v{PRODUCT_VERSION}</span>
         </button>
         <nav className="nav-links" id="primary-navigation" aria-label="主导航">
           <button aria-current={currentPage === 'home' ? 'page' : undefined} className={currentPage === 'home' ? 'active' : ''} type="button" onClick={() => goToPage('home')}>
@@ -1957,7 +1939,7 @@ function HomePage({ onStartReview }: { onStartReview: () => void }) {
 
         <div className="home-showcase-console">
           <div className="home-showcase-intro">
-            <p className="eyebrow">摄影点评与学习</p>
+            <p className="eyebrow">摄影点评与学习 · v{PRODUCT_VERSION}</p>
             <h1 id="hero-title"><span>PhotoSense</span><span>AI</span></h1>
             <p className="hero-text">
               上传一张照片，结合影像介质、摄影题材与评价水平，从构图、光线、色彩、叙事和技术完成度整理出可执行的摄影反馈。
@@ -2442,7 +2424,6 @@ function ReportPage({
   const reviewContext = getResolvedReviewContext(displayedReport, displayedMedium, displayedGenre, displayedSkillLevel);
   const postProcessing = displayedReport ? getPostProcessingAdvice(displayedReport) : null;
   const scoreSummary = displayedReport ? getScoreSummary(displayedReport) : null;
-  const scoreBands = displayedReport ? getScoreBands(displayedReport) : null;
   const scoreReasons = displayedReport ? getScoreReasons(displayedReport) : null;
   const photoSpecific = displayedReport ? getPhotoSpecificFeedback(displayedReport, displayedGenre) : null;
   const nextActions = displayedReport ? getNextShootingActions(displayedReport, displayedGenre) : null;
@@ -2727,7 +2708,7 @@ function ReportPage({
 
               <div className="diagnostic-report" data-report-export="true" ref={reportExportRef}>
                 <div className={`report-export-cover report-source-${displayedSource}`} aria-hidden="true" data-report-page-block="true">
-                  <p className="panel-kicker">PhotoSense AI · Photography review</p>
+                  <p className="panel-kicker">PhotoSense AI v{PRODUCT_VERSION} · Photography review</p>
                   <h2>{activeRecord?.title || '分析报告'}</h2>
                   <p>{formatReportDate(displayedDate)} · {displayedMedium} · {displayedGenre} · {displayedSkillLevel}</p>
                   <div>
@@ -2822,15 +2803,14 @@ function ReportPage({
                 <section className="dimension-diagnosis" id="report-dimensions" aria-label="五项摄影诊断维度" data-report-page-block="true">
                 <SectionTitle icon="technical" eyebrow="诊断维度" title="评分、结论与行动建议" />
                 <div className="diagnosis-grid">
-                  <DiagnosticCard icon="composition" title="构图" score={displayedReport.scores['构图']} band={scoreBands?.['构图']} reason={scoreReasons?.['构图']} text={displayedReport.composition} priority={improvementPriority !== 'none' && scoreSummary?.weakest.name === '构图'} priorityLabel={improvementPriority === 'optional' ? '可选优化' : undefined} />
-                  <DiagnosticCard icon="lighting" title="光线" score={displayedReport.scores['光线']} band={scoreBands?.['光线']} reason={scoreReasons?.['光线']} text={displayedReport.lighting} priority={improvementPriority !== 'none' && scoreSummary?.weakest.name === '光线'} priorityLabel={improvementPriority === 'optional' ? '可选优化' : undefined} />
-                  <DiagnosticCard icon="colour" title="色彩" score={displayedReport.scores['色彩']} band={scoreBands?.['色彩']} reason={scoreReasons?.['色彩']} text={displayedReport.colour} priority={improvementPriority !== 'none' && scoreSummary?.weakest.name === '色彩'} priorityLabel={improvementPriority === 'optional' ? '可选优化' : undefined} />
-                  <DiagnosticCard icon="storytelling" title="叙事" score={displayedReport.scores['叙事']} band={scoreBands?.['叙事']} reason={scoreReasons?.['叙事']} text={displayedReport.storytelling} priority={improvementPriority !== 'none' && scoreSummary?.weakest.name === '叙事'} priorityLabel={improvementPriority === 'optional' ? '可选优化' : undefined} />
+                  <DiagnosticCard icon="composition" title="构图" score={displayedReport.scores['构图']} reason={scoreReasons?.['构图']} text={displayedReport.composition} priority={improvementPriority !== 'none' && scoreSummary?.weakest.name === '构图'} priorityLabel={improvementPriority === 'optional' ? '可选优化' : undefined} />
+                  <DiagnosticCard icon="lighting" title="光线" score={displayedReport.scores['光线']} reason={scoreReasons?.['光线']} text={displayedReport.lighting} priority={improvementPriority !== 'none' && scoreSummary?.weakest.name === '光线'} priorityLabel={improvementPriority === 'optional' ? '可选优化' : undefined} />
+                  <DiagnosticCard icon="colour" title="色彩" score={displayedReport.scores['色彩']} reason={scoreReasons?.['色彩']} text={displayedReport.colour} priority={improvementPriority !== 'none' && scoreSummary?.weakest.name === '色彩'} priorityLabel={improvementPriority === 'optional' ? '可选优化' : undefined} />
+                  <DiagnosticCard icon="storytelling" title="叙事" score={displayedReport.scores['叙事']} reason={scoreReasons?.['叙事']} text={displayedReport.storytelling} priority={improvementPriority !== 'none' && scoreSummary?.weakest.name === '叙事'} priorityLabel={improvementPriority === 'optional' ? '可选优化' : undefined} />
                   <DiagnosticCard
                     icon="technical"
                     title="技术完成度"
                     score={displayedReport.scores['技术完成度']}
-                    band={scoreBands?.['技术完成度']}
                     reason={scoreReasons?.['技术完成度']}
                     text={displayedReport.technical}
                     priority={improvementPriority !== 'none' && scoreSummary?.weakest.name === '技术完成度'}
@@ -3048,7 +3028,7 @@ function HistoryPage({ historyRecords, onDeleteRecord, onOpenRecord, onStartRevi
           </div>
           <div>
             <strong>{averageScore || '--'}</strong>
-            <span>v3 平均</span>
+            <span>当前评分标准平均</span>
           </div>
         </div>
 
@@ -3242,7 +3222,7 @@ function HistoryPage({ historyRecords, onDeleteRecord, onOpenRecord, onStartRevi
                       <span>{record.medium}</span>
                       <span>{critiqueLevel}</span>
                       <span>{subject}</span>
-                      <span>{scoreVersion === CURRENT_SCORE_VERSION ? 'v3 评分' : '旧评分标准'}</span>
+                      <span>{scoreVersion === CURRENT_SCORE_VERSION ? '当前评分标准' : '旧评分标准'}</span>
                     </div>
                     <p className="history-card-summary">{record.summary || record.report.overall}</p>
                     <div className="history-priority-dimension">
@@ -3535,7 +3515,6 @@ function DiagnosticCard({
   icon,
   title,
   score,
-  band,
   reason,
   text,
   priority = false,
@@ -3544,21 +3523,19 @@ function DiagnosticCard({
   icon: IconName;
   title: string;
   score: number;
-  band?: ScoreBand;
   reason?: string;
   text: string;
   priority?: boolean;
   priorityLabel?: string;
 }) {
   const parts = parseDiagnosticText(text);
-  const [isOpen, setIsOpen] = useResponsiveDisclosure(priority);
 
   return (
-    <details className={`diagnostic-card ${priority ? 'is-priority' : ''}`} open={isOpen} onToggle={(event) => setIsOpen(event.currentTarget.open)}>
-      <summary className="diagnostic-card-head">
+    <article className={`diagnostic-card ${priority ? 'is-priority' : ''}`}>
+      <div className="diagnostic-card-head">
         <SectionTitle icon={icon} eyebrow={priority ? priorityLabel ?? '优先处理' : '诊断模块'} title={title} level="h3" />
-        <strong>{score}{band ? <small>{band}</small> : null}</strong>
-      </summary>
+        <strong>{score}</strong>
+      </div>
       <dl className="diagnostic-card-content">
         {reason ? (
           <div className="diagnostic-score-reason">
@@ -3579,7 +3556,7 @@ function DiagnosticCard({
           <dd>{parts.action}</dd>
         </div>
       </dl>
-    </details>
+    </article>
   );
 }
 

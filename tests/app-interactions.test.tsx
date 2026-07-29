@@ -717,6 +717,25 @@ test('高完成度报告允许明确显示无明显问题', async () => {
   }
 });
 
+test('五项诊断模块自然展示正文且不显示分数等级词', async () => {
+  const environment = await renderApp([createHistoryRecord('diagnostic', '2026-02-01T10:00:00Z', 0)]);
+
+  try {
+    await click(getMainNavigationButton('历史记录'));
+    await click(getHistoryReportControl(document.querySelector('.history-card') as Element));
+
+    const cards = [...document.querySelectorAll('.dimension-diagnosis .diagnostic-card')];
+    assert.equal(cards.length, 5);
+    assert.ok(cards.every((card) => card.tagName === 'ARTICLE'));
+    assert.equal(document.querySelector('.dimension-diagnosis details'), null);
+    assert.equal(document.querySelector('.dimension-diagnosis summary'), null);
+    assert.equal(document.querySelector('.dimension-diagnosis .diagnostic-card-head small'), null);
+    assert.ok(cards.every((card) => (card.querySelector('.diagnostic-card-content')?.textContent ?? '').trim().length > 0));
+  } finally {
+    await cleanupEnvironment(environment);
+  }
+});
+
 test('首页流程先上传照片再选择照片属性', async () => {
   const environment = await renderApp();
 
@@ -745,6 +764,7 @@ test('首页每次进入都显示介绍，且只由眼睛按钮切换', async ()
   });
 
   try {
+    assert.match(document.querySelector('.brand-text')?.textContent ?? '', /PhotoSense AI · v1\.0/, '页头应显示产品版本 v1.0');
     assert.equal(document.querySelector('.home-intro-content')?.hasAttribute('hidden'), false, '进入首页应立即显示介绍');
     assert.equal(autoHideScheduled, false, '首页不应安排三秒自动隐藏');
 

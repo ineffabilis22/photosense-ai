@@ -1,4 +1,4 @@
-# 部署说明
+# PhotoSense AI v1.0 部署说明
 
 完整的本地开发、测试、生产启动和 Render 部署步骤见 [README.md](./README.md)。
 
@@ -13,7 +13,7 @@ VITE_ENABLE_HISTORY_EXPORT=false
 推荐命令：
 
 ```text
-Build Command: npm ci && npm run build
+Build Command: npm ci --include=dev && npm run build
 Start Command: npm start
 ```
 

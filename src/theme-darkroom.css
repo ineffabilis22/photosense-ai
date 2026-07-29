@@ -3599,13 +3599,11 @@ textarea:focus-visible,
     padding: 20px 16px;
   }
 
-  .page-report .diagnostic-card > summary,
   .page-report .post-advice-card > summary {
     position: relative;
     padding-right: 54px;
   }
 
-  .page-report .diagnostic-card > summary::after,
   .page-report .post-advice-card > summary::after {
     position: absolute;
     top: 4px;
@@ -3616,7 +3614,6 @@ textarea:focus-visible,
     font-weight: 850;
   }
 
-  .page-report .diagnostic-card[open] > summary::after,
   .page-report .post-advice-card[open] > summary::after {
     content: '收起';
   }

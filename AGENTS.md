@@ -1,6 +1,6 @@
 # AGENTS.md
 
-PhotoSense AI is a Chinese AI photography critique web app prototype. It helps users upload a photo, select review context, request a photography diagnosis report from a configured vision model, and keep records in a history archive. When the provider is unavailable, the UI must label the fallback as a sample report.
+PhotoSense AI v1.0 is the accepted final version of a Chinese AI photography learning and critique web app. It helps users upload a photo, select review context, request a photography diagnosis report from a configured vision model, and keep records in a history archive. When the provider is unavailable, the UI must label the fallback as a sample report.
 
 ## Tech Stack
 
@@ -55,3 +55,12 @@ Avoid modifying these unless necessary for the task:
 - `package-lock.json`
 - backup files such as `src/App.tsx备份`, `src/styles.css备份`, and `preview.html备份`
 - config files such as `vite.config.*`, `tsconfig*.json`, and generated build info files
+
+## Final Release Baseline
+
+The user accepted the current working tree as PhotoSense AI v1.0 on 2026-07-29.
+
+- `docs/MODIFICATION_MASTER_PLAN_2026-07-29.md` and `docs/MODIFICATION_TASK_BOARD_2026-07-29.md` are archived proposals, not active work.
+- Do not implement items from the archived plan unless the user explicitly reopens product development.
+- Preserve the v1.0 source, tests, report semantics, responsive behavior, and source labels.
+- Do not deploy to GitHub or Render unless the user explicitly requests deployment.

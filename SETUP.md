@@ -1,4 +1,4 @@
-# 快速开始
+# PhotoSense AI v1.0 快速开始
 
 ```powershell
 npm ci
