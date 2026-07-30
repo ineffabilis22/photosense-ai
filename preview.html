@@ -3,8 +3,8 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="description" content="PhotoSense AI v1.0 摄影学习与作品复盘静态预览。" />
-    <title>PhotoSense AI v1.0｜静态预览</title>
+    <meta name="description" content="PhotoSense AI 摄影学习与作品复盘静态预览。" />
+    <title>PhotoSense AI｜静态预览</title>
     <link rel="stylesheet" href="./src/styles.css" />
     <style>
       [hidden],
@@ -17,9 +17,9 @@
   <body>
     <div class="app-shell">
       <header class="site-header">
-        <a class="brand" href="#" data-page-link="home" aria-label="PhotoSense AI v1.0 首页">
+        <a class="brand" href="#" data-page-link="home" aria-label="PhotoSense AI 首页">
           <span class="brand-mark">影</span>
-          <span>PhotoSense AI · v1.0</span>
+          <span>PhotoSense AI</span>
         </a>
         <nav class="nav-links" aria-label="主导航">
           <a class="active" href="#" data-page-link="home">首页</a>
@@ -46,10 +46,10 @@
             <span class="photo-tile tile-window"></span>
           </div>
           <div class="hero-copy">
-            <p class="eyebrow">PhotoSense AI v1.0 · 摄影点评与学习</p>
+            <p class="eyebrow">PhotoSense AI · 摄影点评与学习</p>
             <h1 id="hero-title">让每一张作品都有清晰的下一步。</h1>
             <p class="hero-text">
-              PhotoSense AI v1.0 面向摄影学习者，将照片拆解为构图、光线、色彩、叙事与技术完成度，整理出克制、具体、可执行的中文复盘报告。
+              PhotoSense AI 面向摄影学习者，将照片拆解为构图、光线、色彩、叙事与技术完成度，整理出克制、具体、可执行的中文复盘报告。
             </p>
             <div class="hero-actions">
               <a class="primary-link" href="#" data-page-link="review">开始点评</a>
@@ -211,12 +211,12 @@
         </section>
 
         <section class="auth-page" id="login-page" data-page-view="login" hidden>
-          <section class="auth-visual" aria-hidden="true"><div class="auth-frame auth-frame-one"></div><div class="auth-frame auth-frame-two"></div><p>PhotoSense AI v1.0 / 影像复盘工作台</p></section>
+          <section class="auth-visual" aria-hidden="true"><div class="auth-frame auth-frame-one"></div><div class="auth-frame auth-frame-two"></div><p>PhotoSense AI / 影像复盘工作台</p></section>
           <section class="auth-panel"><p class="eyebrow">登录</p><h1>回到你的评审工作台。</h1><p class="auth-intro">登录后可继续管理历史点评、上传记录与作品集准备进度。</p><form class="auth-form"><label>邮箱或手机号<input type="text" placeholder="name@example.com / 138 0000 0000" /></label><label>密码<input type="password" placeholder="请输入密码" /></label><button class="analyze-button rounded-command" type="button">登录</button></form><div class="auth-links"><button type="button">忘记密码</button><a href="#" data-page-link="register">还没有账号？去注册</a></div></section>
         </section>
 
         <section class="auth-page" id="register-page" data-page-view="register" hidden>
-          <section class="auth-visual" aria-hidden="true"><div class="auth-frame auth-frame-one"></div><div class="auth-frame auth-frame-two"></div><p>PhotoSense AI v1.0 / 影像复盘工作台</p></section>
+          <section class="auth-visual" aria-hidden="true"><div class="auth-frame auth-frame-one"></div><div class="auth-frame auth-frame-two"></div><p>PhotoSense AI / 影像复盘工作台</p></section>
           <section class="auth-panel"><p class="eyebrow">注册</p><h1>创建一个新的影像复盘空间。</h1><p class="auth-intro">用于产品原型展示，表单暂不连接真实账号系统。</p><form class="auth-form"><label>用户名<input type="text" placeholder="例如：陈明" /></label><label>邮箱或手机号<input type="text" placeholder="name@example.com / 138 0000 0000" /></label><label>密码<input type="password" placeholder="请输入密码" /></label><label>确认密码<input type="password" placeholder="再次输入密码" /></label><label class="agreement-row"><input type="checkbox" /><span>我已阅读并同意用户协议与隐私政策</span></label><button class="analyze-button rounded-command" type="button">注册</button></form><div class="auth-links"><a href="#" data-page-link="login">已有账号？去登录</a></div></section>
         </section>
 
@@ -224,7 +224,7 @@
           <section class="history-hero">
             <p class="eyebrow">方法说明</p>
             <h1>把摄影点评拆成可复盘的观察步骤。</h1>
-          <p>PhotoSense AI v1.0 会根据评价水平、题材类型与上传照片，生成构图、光线、色彩、叙事和技术完成度五个维度的学习诊断建议。</p>
+          <p>PhotoSense AI 会根据评价水平、题材类型与上传照片，生成构图、光线、色彩、叙事和技术完成度五个维度的学习诊断建议。</p>
           </section>
           <section class="support-grid">
             <article>
@@ -397,7 +397,7 @@
         suggestions[1] = '压低边缘干扰，让视线留在画面内部。';
         suggestions[2] = '局部提亮主体，再决定整体对比度。';
 
-      reportText = `PhotoSense AI v1.0 摄影评审报告\n类型：${selectedGenre}\n评价水平：${selectedLevel}\n\n总体印象\n${overall}\n\n评分\n${scoreNames
+      reportText = `PhotoSense AI 摄影评审报告\n类型：${selectedGenre}\n评价水平：${selectedLevel}\n\n总体印象\n${overall}\n\n评分\n${scoreNames
           .map((name) => `${name}：${scores[name]}/100`)
           .join('\n')}\n\n构图分析\n${composition}\n\n光线分析\n${lighting}\n\n色彩分析\n${colour}\n\n叙事分析\n${storytelling}\n\n技术完成度\n${technical}\n\n三条可执行建议\n${suggestions
           .map((item, index) => `${index + 1}. ${item}`)

@@ -5995,7 +5995,8 @@ textarea {
 .page-report .report-score-block .radar-legend-row em.is-weak {
   border-color: rgba(155, 63, 53, 0.5) !important;
   color: var(--ps-danger) !important;
-  background: rgba(155, 63, 53, 0.08) !important;
+  background: transparent !important;
+  box-shadow: none;
 }
 
 @media (max-width: 1100px) {

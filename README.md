@@ -1,136 +1,25 @@
-# PhotoSense AI v1.0
+# PhotoSense AI
 
-> 面向摄影学习者的 AI 复盘与评审工具｜正式终稿 v1.0（2026-07-29）
+PhotoSense AI 是一款面向摄影学习者的 AI 作品复盘工具。上传一张照片，选择影像介质、摄影题材与评价水平，即可获得围绕构图、光线、色彩、叙事和技术完成度的结构化中文反馈。
 
-PhotoSense AI v1.0 是一个面向摄影学习者的作品复盘工具。用户选择摄影媒介、题材和评价水平，上传照片后获得构图、光线、色彩、叙事、技术完成度以及后期和下次拍摄建议。评价水平分为“爱好者水平”和“进阶水平”：两者使用同一套基于可见证据的评分标准，前者使用日常语言，后者可采用经过解释的摄影术语。
+## 它能帮助你做什么
 
-v1.0 已完成上传、分析进度、照片针对性报告、报告导出和历史复盘闭环。当前评分标准先选择“作品级、强、成立、普通、偏弱、严重问题”六档，再由服务端统一映射数值；其内部数据标识仍为 `scoreVersion: v3`，用于兼容旧记录，并不代表产品版本。高完成度照片允许明确给出“未发现影响画面成立的明显问题”。登录、注册、分享仍是演示功能，不应作为真实账号系统使用。
+- 看清照片已经成立的部分，以及最值得继续调整的地方
+- 理解评分背后的画面依据，而不只得到一个数字
+- 获得可直接尝试的后期建议与下次拍摄行动
+- 保存、筛选和回看历史报告，持续观察自己的创作变化
 
-- GitHub：[ineffabilis22/photosense-ai](https://github.com/ineffabilis22/photosense-ai)
-- 在线版本：[photosense-ai.onrender.com](https://photosense-ai.onrender.com)
+## 适合谁
 
-## 运行要求
+PhotoSense AI 适合希望系统学习摄影、整理创作思路和建立复盘习惯的爱好者与进阶学习者。不同评价水平会调整反馈语言与分析深度，但始终以照片中可见的内容为依据。
 
-- Node.js 20 或更高版本
-- npm 10 或更高版本
-- 一个支持图片输入的 OpenAI-compatible、Gemini 或 Anthropic 接口；没有 API 也能浏览网站，但分析时会明确显示“示例报告”
+## 使用方式
 
-## 本地开发
+1. 上传 JPG、PNG 或 WebP 照片。
+2. 选择影像介质、摄影题材与评价水平。
+3. 生成报告并阅读综合判断、五维分析和行动建议。
+4. 保存报告，在历史记录中回看自己的摄影练习。
 
-先在项目根目录安装依赖：
+## 在线体验
 
-```powershell
-npm ci
-Copy-Item .env.example .env
-```
-
-macOS / Linux 复制环境文件时使用：
-
-```bash
-cp .env.example .env
-```
-
-编辑 `.env`，至少填写一种分析服务。OpenAI-compatible 中转接口示例：
-
-```env
-OPENAI_RELAY_BASE_URL=https://your-provider.example/v1
-OPENAI_RELAY_API_KEY=your_api_key
-OPENAI_RELAY_MODEL=your_vision_model
-NODE_ENV=development
-```
-
-不要把真实 API Key 提交到 Git。`OPENAI_RELAY_BASE_URL` 通常填写到 `/v1`，服务端会自动拼接 `/chat/completions`。
-
-打开两个终端，均进入项目根目录。第一个终端启动 API：
-
-```powershell
-npm run server
-```
-
-第二个终端启动前端：
-
-```powershell
-npm run dev
-```
-
-访问 `http://localhost:5173`。Vite 会把 `/api` 请求代理到 `http://localhost:8787`。
-
-## 本地验证
-
-运行自动测试和生产构建：
-
-```powershell
-npm run check
-```
-
-`npm run check` 会依次完成测试源码类型检查、48 项自动测试和生产构建。自动测试包含 DOM 交互闭环以及本地模拟 OpenAI-compatible 供应商的端到端请求，不会调用或消耗真实 API Key。
-
-也可以分别运行：
-
-```powershell
-npm run test
-npm run build
-```
-
-检查后端状态：
-
-```text
-http://localhost:8787/api/health
-```
-
-返回结果中：
-
-- `ok: true` 表示 PhotoSense 服务已启动；
-- `providerConfigured: true` 表示至少配置了一种分析服务；
-- `historyExportEnabled` 表示服务器端 JSON 历史导出是否开启。
-
-建议手动测试下面的核心路径：
-
-1. 点击或拖放上传 JPG、PNG、WebP；空文件、其他格式和超过 15 MB 的文件应被拒绝。
-2. 更换照片时，作品标题、媒介、题材和评价水平应保持不变；评价水平应只显示“爱好者水平”和“进阶水平”。
-3. 开始分析后检查四阶段进度、等待时间、取消操作和冷启动提示。
-4. API 可用时，报告顶部应显示“实时 AI 分析”；报告应包含照片优点、当前判断或优先问题、画面区域、裁剪参考、五项评分等级和评分依据。
-5. 停止 API 后再次分析，页面应明确显示“示例报告”和失败原因；点击“重试实时分析”应保留照片和点评参数。
-6. 刷新页面后检查历史记录；缩略图应仍然有效，媒介与题材筛选可组合使用。
-7. 进入管理模式，选择两份记录，检查综合评分、五项评分、主要问题和练习方向的对比结果；旧评分标准与当前评分标准的记录只并列展示，不计算分数变化。
-8. 检查本月数量、日期区间、搜索、评分排序和删除记录。
-9. 历史记录最多保留 20 条，以控制浏览器存储占用。
-
-## 本地生产模式
-
-先构建，再由同一个 Node 服务提供前端和 API：
-
-```powershell
-npm run build
-npm start
-```
-
-访问 `http://localhost:8787`。
-
-## 可选的历史 JSON 导出
-
-浏览器历史默认保存在 `localStorage`。如需在本地同时把历史写入项目的 `exports` 目录，在 `.env` 中同时开启：
-
-```env
-ENABLE_HISTORY_EXPORT=true
-VITE_ENABLE_HISTORY_EXPORT=true
-```
-
-修改 `VITE_` 变量后需要重新启动 Vite 或重新构建。公开部署必须保持这两项为 `false`，因为该接口不包含账号级权限控制。
-
-## Render 部署参考
-
-- Build Command：`npm ci --include=dev && npm run build`
-- Start Command：`npm start`
-- Node 版本：20 或更高
-- 环境变量：填写所选分析供应商的 URL、Key、模型名，并设置 `NODE_ENV=production`
-- 安全设置：`ENABLE_HISTORY_EXPORT=false`、`VITE_ENABLE_HISTORY_EXPORT=false`
-
-部署后检查 `/api/health`，再上传一张测试照片完成一次分析。健康接口只返回配置状态，不会暴露 API Key。
-
-## 数据说明
-
-- 上传图片会发送给你在 `.env` 中配置的分析供应商。
-- 历史缩略图会压缩为较小的数据 URL 并保存在当前浏览器中。
-- 默认不会把用户历史记录写到公共服务器。
-- 首页摄影作品为项目作者自有素材。
+[打开 PhotoSense AI](https://photosense-ai.onrender.com)

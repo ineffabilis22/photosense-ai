@@ -717,6 +717,23 @@ test('高完成度报告允许明确显示无明显问题', async () => {
   }
 });
 
+test('评分概览以实心优势项和空心待优化标签区分最高与最低分', async () => {
+  const environment = await renderApp([createHistoryRecord('score-labels', '2026-02-01T10:00:00Z', 0)]);
+
+  try {
+    await click(getMainNavigationButton('历史记录'));
+    await click(getHistoryReportControl(document.querySelector('.history-card') as Element));
+
+    const scoreBlock = document.querySelector('.report-score-block');
+    assert.ok(scoreBlock);
+    assert.equal(scoreBlock.querySelector('em.is-strong')?.textContent?.trim(), '优势项');
+    assert.equal(scoreBlock.querySelector('em.is-weak')?.textContent?.trim(), '待优化');
+    assert.doesNotMatch(scoreBlock.textContent ?? '', /可选优化/);
+  } finally {
+    await cleanupEnvironment(environment);
+  }
+});
+
 test('五项诊断模块自然展示正文且不显示分数等级词', async () => {
   const environment = await renderApp([createHistoryRecord('diagnostic', '2026-02-01T10:00:00Z', 0)]);
 
@@ -764,7 +781,8 @@ test('首页每次进入都显示介绍，且只由眼睛按钮切换', async ()
   });
 
   try {
-    assert.match(document.querySelector('.brand-text')?.textContent ?? '', /PhotoSense AI · v1\.0/, '页头应显示产品版本 v1.0');
+    assert.equal(document.querySelector('.brand-text')?.textContent?.trim(), 'PhotoSense AI', '页头只应显示产品名称');
+    assert.doesNotMatch(document.querySelector('.home-showcase-intro')?.textContent ?? '', /\bv(?:1\.0|3)\b/i, '首页介绍不应显示版本号');
     assert.equal(document.querySelector('.home-intro-content')?.hasAttribute('hidden'), false, '进入首页应立即显示介绍');
     assert.equal(autoHideScheduled, false, '首页不应安排三秒自动隐藏');
 
