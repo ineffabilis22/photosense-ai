@@ -7,7 +7,10 @@ import { analyzeImageTone, normalizePreviewRecipe, renderPreviewImage } from './
 
 const PORT = Number(process.env.PORT || 8787);
 const OPENAI_RELAY_BASE_URL = process.env.OPENAI_RELAY_BASE_URL?.trim().replace(/\/+$/, '');
-const OPENAI_RELAY_MODEL = process.env.OPENAI_RELAY_MODEL?.trim() || 'gpt-5.4';
+const configuredOpenAiRelayModel = process.env.OPENAI_RELAY_MODEL?.trim();
+const OPENAI_RELAY_MODEL = configuredOpenAiRelayModel === 'gpt-5.6'
+  ? 'gpt-5.6-luna'
+  : configuredOpenAiRelayModel || 'gpt-5.4';
 const DEFAULT_REPORT_TEMPERATURE = 0.2;
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
 const GEMINI_RELAY_BASE_URL = process.env.GEMINI_RELAY_BASE_URL?.trim().replace(/\/+$/, '');
