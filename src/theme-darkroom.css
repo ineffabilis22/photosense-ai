@@ -6421,11 +6421,24 @@ textarea {
 .page-report .diagnostic-report.is-simple-export :is(
   .photo-specific-summary,
   .dimension-diagnosis,
-  .post-processing-advice,
   .next-shooting-actions,
   .review-context-section
 ) {
   display: none !important;
+}
+
+.page-report .report-export-pending {
+  margin: 0;
+  padding: 10px 14px;
+  color: var(--ps-orange-deep);
+  background: rgba(213, 90, 50, 0.1);
+  font-size: 0.76rem;
+  line-height: 1.55;
+}
+
+.page-report .report-export-menu button:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
 }
 
 .page-report .diagnostic-report.is-simple-export .diagnostic-hero-report {

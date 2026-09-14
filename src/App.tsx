@@ -18,7 +18,7 @@ import type {
 } from './types/report';
 import { filterAndSortHistoryRecords, countRecordsInCurrentMonth, type HistorySort } from './utils/history';
 import { analysisPhases, getAnalysisPhaseStatus, getAnalysisWaitMessage } from './utils/analysis';
-import { createFullReportPart, createPortraitReportPart } from './utils/report-export';
+import { createFullReportPart, createPortraitReportPart, shouldIncludeReportSection, type ReportExportMode } from './utils/report-export';
 import { mergeAiReportWithFallback } from './utils/report';
 import { formatFileSize, validateImageFile } from './utils/upload';
 import { PostProcessingPreview } from './components/PostProcessingPreview';
@@ -331,6 +331,7 @@ const scoreNames: ScoreName[] = ['构图', '光线', '色彩', '叙事', '技术
 const HISTORY_STORAGE_KEY = 'photosense_history_records';
 const HISTORY_SCHEMA_VERSION_KEY = 'photosense_history_schema_version';
 const HISTORY_SCHEMA_VERSION = '3';
+const TEST_HISTORY_CLEANUP_VERSION_KEY = 'photosense_test_history_cleanup_v1';
 const CURRENT_SCORE_VERSION = 'v3';
 const NO_SIGNIFICANT_ISSUE = '未发现影响画面成立的明显问题。';
 const MAX_HISTORY_RECORDS = 20;
@@ -1147,6 +1148,20 @@ function getErrorMessage(error: unknown, fallback: string) {
   return error instanceof Error && error.message.trim() ? error.message : fallback;
 }
 
+function isKnownTestHistoryRecord(record: unknown) {
+  if (!record || typeof record !== 'object') return false;
+
+  const candidate = record as { title?: unknown; fileName?: unknown; createdAt?: unknown; date?: unknown };
+  const title = typeof candidate.title === 'string' ? candidate.title.trim() : '';
+  const fileName = typeof candidate.fileName === 'string' ? candidate.fileName.trim() : '';
+  const createdAt = typeof candidate.createdAt === 'string' ? candidate.createdAt : '';
+  const date = typeof candidate.date === 'string' ? candidate.date : '';
+
+  return title === '789789'
+    && fileName === '_DSC6793.jpg'
+    && (createdAt.startsWith('2026-09-13') || (date.includes('2026') && date.includes('9月13日')));
+}
+
 function loadStoredHistoryRecords(): HistoryRecord[] {
   if (typeof window === 'undefined') {
     return [];
@@ -1173,7 +1188,8 @@ function loadStoredHistoryRecords(): HistoryRecord[] {
       return [];
     }
 
-    return parsedValue
+    const shouldCleanKnownTestRecord = window.localStorage.getItem(TEST_HISTORY_CLEANUP_VERSION_KEY) !== '1';
+    const normalizedRecords = parsedValue
       .filter((record) => record && typeof record.id === 'string' && typeof record.report === 'object')
       .map((record) => {
         const medium = mediums.includes(record.medium) ? record.medium : '数码摄影';
@@ -1223,6 +1239,17 @@ function loadStoredHistoryRecords(): HistoryRecord[] {
         } as HistoryRecord;
       })
       .slice(0, MAX_HISTORY_RECORDS);
+
+    if (shouldCleanKnownTestRecord) {
+      const cleanedRecords = normalizedRecords.filter((record) => !isKnownTestHistoryRecord(record));
+      if (cleanedRecords.length !== normalizedRecords.length) {
+        window.localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(cleanedRecords));
+      }
+      window.localStorage.setItem(TEST_HISTORY_CLEANUP_VERSION_KEY, '1');
+      return cleanedRecords;
+    }
+
+    return normalizedRecords;
   } catch (error) {
     console.warn('Failed to restore PhotoSense history records from localStorage', error);
     return [];
@@ -2704,6 +2731,9 @@ function ReportPage({
   const [exportStatus, setExportStatus] = useState('');
   const [isExporting, setIsExporting] = useState(false);
   const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
+  const [optimizationPreviewStatus, setOptimizationPreviewStatus] = useState<'not-required' | 'generating' | 'ready' | 'error'>(() => (
+    activeRecord?.optimizedImageUrl ? 'ready' : 'generating'
+  ));
   const exportTimerRef = useRef<number | null>(null);
   const reportExportRef = useRef<HTMLDivElement>(null);
 
@@ -2759,9 +2789,23 @@ function ReportPage({
     };
   }, []);
 
-  async function handleExportReport(mode: 'simple' | 'detailed') {
+  const hasOptimizationPreview = displayedSource === 'ai'
+    && Boolean(displayedImageUrl)
+    && Boolean(displayedReport?.optimizationPlan?.items.length);
+  const isOptimizationPreviewPending = hasOptimizationPreview && optimizationPreviewStatus !== 'ready';
+  const optimizationPreviewMessage = optimizationPreviewStatus === 'error'
+    ? '优化预览未生成，请先重新生成后再导出。'
+    : '优化预览尚未生成完成，完成后才能导出报告图片。';
+
+  async function handleExportReport(mode: ReportExportMode) {
     const exportNode = reportExportRef.current;
     if (!exportNode || isExporting) return;
+
+    if (isOptimizationPreviewPending) {
+      setIsExportMenuOpen(true);
+      setExportStatus(optimizationPreviewMessage);
+      return;
+    }
 
     setIsExportMenuOpen(false);
     setIsExporting(true);
@@ -2774,6 +2818,13 @@ function ReportPage({
     clonedReport.removeAttribute('data-report-export');
     clonedReport.classList.add('is-exporting');
     if (mode === 'simple') clonedReport.classList.add('is-simple-export');
+    clonedReport.querySelectorAll<HTMLElement>('[data-report-page-block="true"]').forEach((section) => {
+      if (!shouldIncludeReportSection(mode, section.id)) section.remove();
+    });
+    if (activeRecord?.optimizedImageUrl) {
+      const optimizedImage = clonedReport.querySelector<HTMLImageElement>('.post-preview-image img');
+      if (optimizedImage) optimizedImage.src = activeRecord.optimizedImageUrl;
+    }
     clonedReport.querySelectorAll('details').forEach((item) => {
       item.open = true;
     });
@@ -2889,11 +2940,28 @@ function ReportPage({
                   </span>
                   {isExportMenuOpen ? (
                     <div className="report-export-menu" role="menu" aria-label="选择报告图片类型">
-                      <button type="button" role="menuitem" onClick={() => void handleExportReport('simple')}>
+                      {isOptimizationPreviewPending ? (
+                        <p className="report-export-pending" role="status">
+                          {optimizationPreviewMessage}
+                        </p>
+                      ) : null}
+                      <button
+                        type="button"
+                        role="menuitem"
+                        disabled={isOptimizationPreviewPending}
+                        title={isOptimizationPreviewPending ? '请先等待优化预览完成' : undefined}
+                        onClick={() => void handleExportReport('simple')}
+                      >
                         <strong>简易报告</strong>
-                        <span>单张竖版图 · 四项核心内容</span>
+                        <span>单张竖版图 · 01评审结论 + 03优化建议</span>
                       </button>
-                      <button type="button" role="menuitem" onClick={() => void handleExportReport('detailed')}>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        disabled={isOptimizationPreviewPending}
+                        title={isOptimizationPreviewPending ? '请先等待优化预览完成' : undefined}
+                        onClick={() => void handleExportReport('detailed')}
+                      >
                         <strong>详细报告</strong>
                         <span>完整内容 · 单张长图</span>
                       </button>
@@ -2984,7 +3052,7 @@ function ReportPage({
               </aside>
 
               <div className="diagnostic-report" data-report-export="true" ref={reportExportRef}>
-                <div className={`report-export-cover report-source-${displayedSource}`} aria-hidden="true" data-report-page-block="true">
+                <div className={`report-export-cover report-source-${displayedSource}`} aria-hidden="true" data-report-cover="true">
                   <p className="panel-kicker">PhotoSense AI · 摄影复盘</p>
                   <h2>{activeRecord?.title || '分析报告'}</h2>
                   <p>{formatReportDate(displayedDate)} · {displayedMedium} · {displayedGenre} · {displayedSkillLevel}</p>
@@ -3110,6 +3178,7 @@ function ReportPage({
                     onOptimizedImageGenerated={activeRecord
                       ? (optimizedImageUrl) => onSaveOptimizedImage(activeRecord.id, optimizedImageUrl)
                       : undefined}
+                    onGenerationStateChange={setOptimizationPreviewStatus}
                     enabled={Boolean(displayedImageUrl)}
                   />
                   </section>

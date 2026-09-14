@@ -1,6 +1,14 @@
 const MIN_PORTRAIT_HEIGHT_RATIO = 4 / 3;
 const REPORT_PAGE_BACKGROUND = '#eee7d8';
 
+export type ReportExportMode = 'simple' | 'detailed';
+
+const SIMPLE_REPORT_SECTION_IDS = new Set(['report-overview', 'report-post-processing']);
+
+export function shouldIncludeReportSection(mode: ReportExportMode, sectionId: string) {
+  return mode === 'detailed' || SIMPLE_REPORT_SECTION_IDS.has(sectionId);
+}
+
 export function getPortraitReportSize(width: number, height: number) {
   if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
     return { width: 0, height: 0 };

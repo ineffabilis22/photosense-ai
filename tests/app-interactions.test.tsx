@@ -990,6 +990,25 @@ test('历史记录会将旧的默认复盘标题迁移为摄影标题', async ()
   }
 });
 
+test('首次打开时移除已确认的测试上传记录，但保留其他历史记录', async () => {
+  const testRecord = createHistoryRecord('test-upload', '2026-09-13T10:00:00Z', 0);
+  testRecord.title = '789789';
+  testRecord.fileName = '_DSC6793.jpg';
+  testRecord.date = '2026年9月13日';
+  const realRecord = createHistoryRecord('real-record', '2026-09-12T10:00:00Z', 0);
+  const environment = await renderApp([testRecord, realRecord]);
+
+  try {
+    await click(getMainNavigationButton('历史记录'));
+    assert.equal(document.querySelectorAll('.history-card').length, 1);
+    assert.doesNotMatch(document.body.textContent ?? '', /789789|_DSC6793\.jpg/);
+    assert.match(document.body.textContent ?? '', /real-record\.jpg/);
+    assert.equal(JSON.parse(localStorage.getItem(HISTORY_STORAGE_KEY) ?? '[]').some((record: HistoryRecord) => record.title === '789789'), false);
+  } finally {
+    await cleanupEnvironment(environment);
+  }
+});
+
 test('高完成度报告允许明确显示无明显问题', async () => {
   const strongRecord = createHistoryRecord('strong', '2026-02-01T10:00:00Z', 10);
   strongRecord.overallScore = 88;
@@ -1723,11 +1742,55 @@ test('分析报告仅提供图片导出与文字复制，并可选择简易或�
     const exportOptions = [...document.querySelectorAll<HTMLButtonElement>('.report-export-menu button')];
     assert.equal(exportOptions.length, 2);
     assert.match(exportOptions[0].textContent ?? '', /简易报告/);
+    assert.match(exportOptions[0].textContent ?? '', /01评审结论 \+ 03优化建议/);
     assert.match(exportOptions[1].textContent ?? '', /详细报告/);
     assert.match(exportOptions[1].textContent ?? '', /单张长图/);
     assert.doesNotMatch(exportOptions[1].textContent ?? '', /3–4 页|分为/);
     assert.equal(getButtons('分享').length, 0);
   } finally {
+    await cleanupEnvironment(environment);
+  }
+});
+
+test('优化预览生成期间不允许导出，并在选项中提示等待完成', async () => {
+  const record = createHistoryRecord('export-pending', '2026-02-01T10:00:00Z', 0);
+  record.report.optimizationPlan = {
+    summary: '收紧主体关系。',
+    imagePrompt: '保留原图内容，只调整主体位置关系。',
+    items: [{
+      kind: 'reframe',
+      instruction: '向主体方向收紧取景。',
+      target: '主体与画面边缘',
+      reason: '让观看入口更清楚。',
+      expectedEffect: '主体更集中。',
+    }],
+  };
+  const originalFetch = globalThis.fetch;
+  const environment = await renderApp([record]);
+
+  try {
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      if (String(input).includes('/api/render-preview')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ preview: { imageDataUrl, width: 1200, height: 800 } }),
+        } as Response;
+      }
+      if (String(input).includes('/api/generate-optimized-image')) {
+        return new Promise<Response>(() => undefined);
+      }
+      throw new Error(`Unexpected request: ${String(input)}`);
+    }) as typeof fetch;
+
+    await click(getMainNavigationButton('分析报告'));
+    await click(getButton('导出报告图片'));
+    assert.match(document.querySelector('.report-export-pending')?.textContent ?? '', /优化预览尚未生成完成/);
+    const exportOptions = [...document.querySelectorAll<HTMLButtonElement>('.report-export-menu button')];
+    assert.equal(exportOptions.length, 2);
+    assert.equal(exportOptions.every((button) => button.disabled), true);
+  } finally {
+    globalThis.fetch = originalFetch;
     await cleanupEnvironment(environment);
   }
 });

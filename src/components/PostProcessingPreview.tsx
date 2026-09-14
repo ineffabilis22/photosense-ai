@@ -9,6 +9,7 @@ type PostProcessingPreviewProps = {
   nextShooting: NextShootingAdvice | null;
   persistedImageUrl?: string;
   onOptimizedImageGenerated?: (imageUrl: string) => Promise<void> | void;
+  onGenerationStateChange?: (state: 'not-required' | 'generating' | 'ready' | 'error') => void;
   enabled: boolean;
 };
 
@@ -35,7 +36,7 @@ const optimizationLabels: Record<OptimizationKind, string> = {
   other: '画面优化',
 };
 
-export function PostProcessingPreview({ imageUrl, report, medium, nextShooting, persistedImageUrl = '', onOptimizedImageGenerated, enabled }: PostProcessingPreviewProps) {
+export function PostProcessingPreview({ imageUrl, report, medium, nextShooting, persistedImageUrl = '', onOptimizedImageGenerated, onGenerationStateChange, enabled }: PostProcessingPreviewProps) {
   const adjustments = useMemo(
     () => getReportPreviewAdjustments(report),
     [report],
@@ -65,6 +66,7 @@ export function PostProcessingPreview({ imageUrl, report, medium, nextShooting, 
 
     const forceGeneration = forceGenerationRef.current;
     forceGenerationRef.current = false;
+    const hasOptimizationPlan = Boolean(report.optimizationPlan?.items.length);
     setLocalPreview(null);
     setServerPreview(null);
     setAiPreviewUrl(forceGeneration ? '' : persistedImageUrl);
@@ -75,6 +77,7 @@ export function PostProcessingPreview({ imageUrl, report, medium, nextShooting, 
     setComparisonView('after');
 
     if (!enabled || !imageUrl) {
+      onGenerationStateChange?.('not-required');
       setLocalStatus('idle');
       return () => {
         cancelled = true;
@@ -99,7 +102,8 @@ export function PostProcessingPreview({ imageUrl, report, medium, nextShooting, 
         });
 
       if (imageUrl.startsWith('data:image/')) {
-        if (report.optimizationPlan?.items.length && (forceGeneration || !persistedImageUrl)) {
+        if (hasOptimizationPlan && (forceGeneration || !persistedImageUrl)) {
+          onGenerationStateChange?.('generating');
           setAiStatus('rendering');
           longWaitTimerId = window.setTimeout(() => {
             if (!cancelled) setHasLongWaited(true);
@@ -127,6 +131,7 @@ export function PostProcessingPreview({ imageUrl, report, medium, nextShooting, 
               if (cancelled) return;
               setAiPreviewUrl(data.imageUrl);
               setAiStatus('ready');
+              onGenerationStateChange?.('ready');
               setShowSuccessNotice(true);
               successNoticeTimerId = window.setTimeout(() => {
                 if (!cancelled) setShowSuccessNotice(false);
@@ -134,12 +139,17 @@ export function PostProcessingPreview({ imageUrl, report, medium, nextShooting, 
             })
             .catch(() => {
               if (cancelled) return;
+              onGenerationStateChange?.('error');
               setAiStatus('error');
             })
             .finally(() => {
               if (imageTimeoutId !== undefined) window.clearTimeout(imageTimeoutId);
               if (longWaitTimerId !== undefined) window.clearTimeout(longWaitTimerId);
             });
+        }
+
+        if (hasOptimizationPlan && !forceGeneration && persistedImageUrl) {
+          onGenerationStateChange?.('ready');
         }
 
         setServerStatus('rendering');
@@ -203,7 +213,7 @@ export function PostProcessingPreview({ imageUrl, report, medium, nextShooting, 
       if (longWaitTimerId !== undefined) window.clearTimeout(longWaitTimerId);
       if (successNoticeTimerId !== undefined) window.clearTimeout(successNoticeTimerId);
     };
-  }, [adjustments, enabled, imageUrl, medium, report.optimizationPlan, report.recipe, requestVersion]);
+  }, [adjustments, enabled, imageUrl, medium, onGenerationStateChange, report.optimizationPlan, report.recipe, requestVersion]);
 
   function handleRegenerate() {
     forceGenerationRef.current = true;
