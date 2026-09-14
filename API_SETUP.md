@@ -8,6 +8,17 @@ OPENAI_RELAY_API_KEY=your_api_key
 OPENAI_RELAY_MODEL=your_vision_model
 ```
 
+报告页优化图片使用独立的图片编辑模型。配置 OpenAI-compatible Images Edit API：
+
+```env
+IMAGE_RELAY_BASE_URL=https://your-image-provider.example/v1
+IMAGE_RELAY_API_KEY=your_image_api_key
+IMAGE_RELAY_MODEL=your_image_edit_model
+IMAGE_RELAY_TIMEOUT_MS=120000
+```
+
+图片服务地址若只填写域名，服务端会自动补上 `/v1`。优化图片请求只会在真实分析报告已经显示后发起。
+
 可选参数：
 
 ```env
@@ -17,6 +28,6 @@ OPENAI_RELAY_MAX_TOKENS=3000
 OPENAI_RELAY_TEMPERATURE=0.2
 ```
 
-服务端也保留 Gemini 和 Anthropic 兼容配置。至少配置一种供应商后，启动服务并访问 `/api/health`，确认 `providerConfigured: true`。
+服务端也保留 Gemini 和 Anthropic 兼容配置。至少配置一种分析供应商后，启动服务并访问 `/api/health`，确认 `providerConfigured: true`；配置图片模型后还应看到 `imageProviderConfigured: true`。
 
 完整启动与排错步骤见 [README.md](./README.md)。请勿把真实 API Key 写入 Git 仓库。

@@ -8,7 +8,6 @@ import type {
   Medium,
   NextShootingAdvice,
   PhotoSpecificFeedback,
-  PostProcessingAdviceItem,
   Report,
   ReportSource,
   ReportVerdict,
@@ -19,7 +18,6 @@ import type {
 } from './types/report';
 import { filterAndSortHistoryRecords, countRecordsInCurrentMonth, type HistorySort } from './utils/history';
 import { analysisPhases, getAnalysisPhaseStatus, getAnalysisWaitMessage } from './utils/analysis';
-import { compareHistoryRecords } from './utils/comparison';
 import { createFullReportPart, createPortraitReportPart } from './utils/report-export';
 import { mergeAiReportWithFallback } from './utils/report';
 import { formatFileSize, validateImageFile } from './utils/upload';
@@ -61,92 +59,89 @@ const homeBackgroundCollage = [
 
 const homeShowcaseItems = [
   {
-    id: 'night-street',
-    src: homeBackgroundPhotos[0],
-    alt: '夜色街角的坡道、车辆与暖色店铺灯光',
-    title: '夜色街角',
-    medium: '数码摄影',
-    genre: '街头摄影',
-    score: 78,
-    verdict: '暖色店铺形成视觉锚点，但前景车灯分散了观看重心。',
-    action: '降低前景车灯亮度并收紧左侧边缘，让视线更快落到街角人物。',
-  },
-  {
     id: 'city-gap',
     src: homeBackgroundPhotos[6],
+    afterSrc: '/home-showcase/city-gap-after.webp',
     alt: '建筑夹道中的行人、巴士与高处塔吊',
     title: '城市夹缝',
     medium: '数码摄影',
     genre: '建筑摄影',
+    skillLevel: '进阶水平',
     score: 82,
-    verdict: '建筑边界形成稳定框景，巴士与行人让尺度关系更明确。',
-    action: '保留两侧暗部框景，同时微调下沿裁切，强化行人与巴士的前后层次。',
+    verdict: '红砖、白色立面与起重机共同构成鲜明的城市夹缝，巴士和行人补充了现场叙事，但上下两组视觉焦点略有竞争。',
+    suggestions: [
+      '下缘略向上收束，减少空旷路面的比例。',
+      '轻提两侧建筑暗部，同时保留深色框景。',
+      '仅做轻微垂直校正，不消除原有向上仰拍感。',
+    ],
   },
   {
     id: 'lake-swans',
     src: homeBackgroundPhotos[14],
-    alt: '逆光湖面上的三只天鹅与大片水面留白',
+    afterSrc: '/home-showcase/lake-swans-after.webp',
+    alt: '逆光湖面上的两只天鹅与大片水面留白',
     title: '湖面逆光',
     medium: '胶片摄影',
     genre: '风景摄影',
+    skillLevel: '爱好者水平',
     score: 74,
-    verdict: '水面反光建立安静气氛，但主体在大面积暗部中略显分散。',
-    action: '向天鹅区域轻微裁切并压低顶部高光，让三只天鹅形成更集中的观看路径。',
+    verdict: '湖面反光与两只天鹅形成安静的逆光场景，胶片颗粒和暖色质感增强了暮色气氛，但主体比例仍可更集中。',
+    suggestions: [
+      '下次把机位放低并靠近一些，让两只天鹅在画面中适度放大，主体关系更集中。',
+      '等待两只天鹅转向接近或同时抬头，让观看关系更完整。',
+      '轻微提亮天鹅轮廓，并避开过亮反光正中的位置。',
+    ],
   },
   {
     id: 'mist-station',
     src: homeBackgroundPhotos[21],
+    afterSrc: '/home-showcase/mist-station-after.webp',
     alt: '雾天铁路站场、红色列车与纵深交错的轨道',
     title: '雾中站场',
     medium: '胶片摄影',
     genre: '旅行摄影',
+    skillLevel: '进阶水平',
     score: 80,
-    verdict: '轨道透视与雾气共同建立纵深，红色列车提供了清楚的视觉落点。',
-    action: '适度提亮列车周围中间亮度区域，并保留远处雾感，强化近实远虚的层次。',
+    verdict: '雾气压低了空间层次，却让轨道、接触网与红色列车形成克制而明确的秩序感，画面已经具备冷峻的旅行叙事。',
+    suggestions: [
+      '下次向左横移几步重新取景，避开中央立柱对轨道汇聚区的遮挡，让轨道线条更完整。',
+      '等待右侧红色车头完整进入轨道线，与左侧列车形成呼应。',
+      '轻微提亮两列车头，不提高饱和度并继续保留远处雾感。',
+    ],
   },
   {
     id: 'night-tram',
     src: homeBackgroundPhotos[3],
+    afterSrc: '/home-showcase/night-tram-after.webp',
     alt: '夜间站台上驶过的电车、弧形钢架与暖色灯光',
     title: '夜轨穿行',
     medium: '数码摄影',
     genre: '街头摄影',
+    skillLevel: '进阶水平',
     score: 85,
-    verdict: '弧形钢架与电车光轨形成强烈动势，冷暖灯光也清楚交代了夜间空间。',
-    action: '略微压低顶部高光并提亮站台人物区域，让视线沿轨道进入画面后有更明确的停留点。',
+    verdict: '夜间电车的拖影与立交结构形成强烈动势，城市现场感鲜明，主要可以再强化观看顺序与亮部控制。',
+    suggestions: [
+      '轻微调整取景，让电车车头落到右下方三分之一附近。',
+      '保持桥体放射线完整，避开车身遮住轨道中心线的时刻。',
+      '压低电车白色拖影和强灯点，让视线沿轨道进入画面。',
+    ],
   },
   {
     id: 'station-passage',
     src: homeBackgroundPhotos[8],
+    afterSrc: '/home-showcase/station-passage-after.webp',
     alt: '车站入口处经过的行人与车身上的人像广告',
     title: '站内掠影',
     medium: '胶片摄影',
     genre: '街头摄影',
+    skillLevel: '爱好者水平',
     score: 79,
-    verdict: '行人与车身人像形成有趣的视线呼应，但右侧门框和前景标牌稍微分散注意力。',
-    action: '从右侧收紧少量画面并保留人物完整步态，让真实行人与广告面孔的关系成为唯一焦点。',
-  },
-  {
-    id: 'snow-peak',
-    src: homeBackgroundPhotos[10],
-    alt: '暮色中的雪山、山脚城镇与零星暖色灯火',
-    title: '雪峰灯火',
-    medium: '数码摄影',
-    genre: '风景摄影',
-    score: 88,
-    verdict: '雪峰轮廓与山脚灯火建立了清晰尺度，冷色暮光使远近层次保持统一。',
-    action: '轻微提升山峰中间调并控制城镇最亮灯光，让观看顺序先落到雪峰再回到山脚。',
-  },
-  {
-    id: 'mist-lake-bird',
-    src: homeBackgroundPhotos[22],
-    alt: '雾气笼罩的湖面、两根木桩与停栖的水鸟',
-    title: '雾湖栖鸟',
-    medium: '胶片摄影',
-    genre: '风景摄影',
-    score: 81,
-    verdict: '木桩、水鸟和远山构成克制的纵深关系，大面积留白很好地保留了雾天的安静。',
-    action: '略微降低天空高光并增加水鸟局部对比，让主体更稳定，同时继续保留湖面的低反差质感。',
+    verdict: '移动车身、广告人脸与前景行人叠在一起，形成很有现场感的瞬间，但右侧门框与底部警示牌略微分散注意力。',
+    suggestions: [
+      '下次向左移动一步再按下快门，让行人完整落在广告人脸下方，人物与背景形成呼应。',
+      '等待行人抬手或迈步更明确，让姿态与移动车身形成呼应。',
+      '轻微降低底部警示牌的醒目程度，不移除其现场痕迹。',
+    ],
   },
 ] as const;
 
@@ -370,13 +365,13 @@ const levelGuidance: Record<SkillLevel, string> = {
 };
 
 const mediumEvaluationFocus: Record<Medium, string> = {
-  数码摄影: '按数码摄影判断时，更重视曝光准确性、高光控制、白平衡、清晰度、噪点控制与后期调整空间。',
-  胶片摄影: '按胶片摄影判断时，颗粒、色偏、宽容度和冲扫质感会被视为影像气氛的一部分，而不只按数码清晰度评估。',
+  数码摄影: '数码摄影会重点观察曝光、高光、白平衡、清晰度、噪点和后期调整空间。',
+  胶片摄影: '胶片摄影会重点观察颗粒、色偏、宽容度和冲扫质感如何参与画面气氛。',
 };
 
 const levelEvaluationFocus: Record<SkillLevel, string> = {
-  爱好者水平: '选择“爱好者水平”时，报告会使用日常、易懂的语言，重点说明主体是否清楚、画面边缘是否干净，以及下一次可以直接尝试的动作。',
-  进阶水平: '选择“进阶水平”时，报告可以使用高光、阴影、影调、主体分离等摄影术语，并解释这些问题为什么影响画面。',
+  爱好者水平: '爱好者水平会使用日常、易懂的语言，重点说明主体是否清楚、边缘是否干净，以及下一次可以直接尝试的动作。',
+  进阶水平: '进阶水平会进一步解释高光、阴影、影调、主体分离等摄影关系为什么影响画面。',
 };
 
 const genreEvaluationFocus: Record<Genre, string> = {
@@ -390,12 +385,12 @@ const genreEvaluationFocus: Record<Genre, string> = {
 
 function getReviewContext(medium: Medium, genre: Genre, skillLevel: SkillLevel): ReviewContext {
   const scoringByGenre: Record<Genre, string> = {
-    街头摄影: '本次评分更重视时机、现场张力、观看顺序和人物与环境关系是否共同成立。',
-    人像摄影: '本次评分更重视人物状态、情绪可信度、肤色与背景控制是否共同服务主体。',
-    风景摄影: '本次评分更重视光线时机、空间层次、影调过渡和地方气质是否成立。',
-    建筑摄影: '本次评分更重视透视秩序、结构节奏、线条控制和光线体积感。',
-    静物摄影: '本次评分更重视物件关系、材质表达、阴影形状和留白控制。',
-    旅行摄影: '本次评分更重视地方感、叙事线索、现场气氛和画面是否避免普通记录感。',
+    街头摄影: '街头摄影会将时机、现场张力、观看顺序和人物与环境关系作为主要评审依据。',
+    人像摄影: '人像摄影会将人物状态、情绪可信度，以及肤色和背景是否服务主体作为主要评审依据。',
+    风景摄影: '风景摄影会将光线时机、空间层次、影调过渡和地方气质作为主要评审依据。',
+    建筑摄影: '建筑摄影会将透视秩序、结构节奏、线条控制和光线体积感作为主要评审依据。',
+    静物摄影: '静物摄影会将物件关系、材质表达、阴影形状和留白控制作为主要评审依据。',
+    旅行摄影: '旅行摄影会将地方感、叙事线索、现场气氛和记录感控制作为主要评审依据。',
   };
 
   return {
@@ -407,14 +402,7 @@ function getReviewContext(medium: Medium, genre: Genre, skillLevel: SkillLevel):
 }
 
 function getResolvedReviewContext(report: Report | null, medium: Medium, genre: Genre, skillLevel: SkillLevel): ReviewContext {
-  const fallback = getReviewContext(medium, genre, skillLevel);
-
-  return {
-    mediumFocus: report?.reviewContext?.mediumFocus || fallback.mediumFocus,
-    levelFocus: report?.reviewContext?.levelFocus || fallback.levelFocus,
-    genreFocus: report?.reviewContext?.genreFocus || fallback.genreFocus,
-    scoringLogic: report?.reviewContext?.scoringLogic || fallback.scoringLogic,
-  };
+  return getReviewContext(medium, genre, skillLevel);
 }
 
 const internalMetaPhrases = [
@@ -692,12 +680,24 @@ function getHistoryTags(genre: Genre, skillLevel: SkillLevel, medium: Medium) {
   return [medium, genre, skillLevel];
 }
 
-function getFallbackHistoryTitle(genre: Genre) {
-  const now = new Date();
-  const month = `${now.getMonth() + 1}`.padStart(2, '0');
-  const day = `${now.getDate()}`.padStart(2, '0');
+function getFallbackHistoryTitle(genre: Genre, dateInput: Date | string = new Date()) {
+  const date = dateInput instanceof Date ? dateInput : new Date(dateInput);
+  const resolvedDate = Number.isNaN(date.getTime()) ? new Date() : date;
+  const month = `${resolvedDate.getMonth() + 1}`.padStart(2, '0');
+  const day = `${resolvedDate.getDate()}`.padStart(2, '0');
 
-  return `${genre}复盘 · ${month}月${day}日`;
+  return `${genre} · ${month}月${day}日`;
+}
+
+function normalizeHistoryTitle(value: unknown, genre: Genre, createdAt: string) {
+  if (typeof value !== 'string' || !value.trim() || value === '历史点评记录') {
+    return getFallbackHistoryTitle(genre, createdAt);
+  }
+
+  const legacyDefaultPrefix = `${genre}复盘 · `;
+  return value.startsWith(legacyDefaultPrefix)
+    ? `${genre} · ${value.slice(legacyDefaultPrefix.length)}`
+    : value;
 }
 
 function getCoreDiagnosis(report: Report, genre: Genre) {
@@ -980,6 +980,34 @@ async function compressImageForApi(file: File): Promise<string> {
   return canvas.toDataURL('image/jpeg', 0.55);
 }
 
+async function compressOptimizedImageForHistory(imageUrl: string): Promise<string> {
+  if (!imageUrl.startsWith('data:image/') || imageUrl.length < 600_000) return imageUrl;
+
+  try {
+    const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const nextImage = new Image();
+      nextImage.onload = () => resolve(nextImage);
+      nextImage.onerror = () => reject(new Error('无法读取优化后照片。'));
+      nextImage.src = imageUrl;
+    });
+    const maxSize = 1440;
+    const scale = Math.min(1, maxSize / image.naturalWidth, maxSize / image.naturalHeight);
+    const width = Math.max(1, Math.round(image.naturalWidth * scale));
+    const height = Math.max(1, Math.round(image.naturalHeight * scale));
+    const canvas = document.createElement('canvas');
+    const context = canvas.getContext('2d');
+    if (!context) return imageUrl;
+
+    canvas.width = width;
+    canvas.height = height;
+    context.drawImage(image, 0, 0, width, height);
+    const compressedImageUrl = canvas.toDataURL('image/webp', 0.82);
+    return compressedImageUrl.length < imageUrl.length ? compressedImageUrl : imageUrl;
+  } catch {
+    return imageUrl;
+  }
+}
+
 async function requestAiReport({
   fallbackReport,
   fileName,
@@ -1045,7 +1073,7 @@ async function requestAiReport({
       throw new Error('分析请求超时，请稍后重试。');
     }
 
-    throw new Error('无法连接分析服务，请确认本地服务已启动或稍后重试。');
+    throw new Error('暂时无法生成结果，请检查网络后重试。');
   } finally {
     window.clearTimeout(timeoutId);
     signal?.removeEventListener('abort', handleExternalAbort);
@@ -1056,24 +1084,15 @@ async function requestAiReport({
   console.log('Analysis API status:', response.status);
 
   if (!response.ok) {
-    let serverMessage = '';
-
-    try {
-      const errorPayload = await response.json();
-      serverMessage = typeof errorPayload?.error === 'string' ? errorPayload.error : '';
-    } catch {
-      // The status-specific message below is clearer than exposing invalid response text.
-    }
-
     if (response.status === 503) {
-      throw new Error(serverMessage || '分析服务尚未配置 API，请检查项目根目录的 .env。');
+      throw new Error('暂时无法生成专属结果，请稍后重试。');
     }
 
     if (response.status === 504) {
-      throw new Error(serverMessage || '上游图像分析超时，请稍后重试。');
+      throw new Error('生成时间较长，请稍后再试。');
     }
 
-    throw new Error(serverMessage || `分析服务返回错误（HTTP ${response.status}）。`);
+    throw new Error('暂时无法生成结果，请稍后重试。');
   }
 
   let data: { ok?: boolean; error?: string; report?: unknown };
@@ -1082,17 +1101,17 @@ async function requestAiReport({
     data = await response.json();
   } catch {
     if (signal?.aborted) throw new AnalysisCancelledError();
-    throw new Error('分析服务返回了无法读取的数据，请稍后重试。');
+    throw new Error('暂时无法读取结果，请稍后重试。');
   }
 
   if (signal?.aborted) throw new AnalysisCancelledError();
 
   if (data.ok === false) {
-    throw new Error(data.error || 'AI 分析接口返回失败。');
+    throw new Error('暂时无法生成结果，请稍后重试。');
   }
 
   if (!data.report || typeof data.report !== 'object') {
-    throw new Error('AI 分析接口没有返回有效报告。');
+    throw new Error('暂时无法整理结果，请稍后重试。');
   }
 
   console.log('Analysis API success');
@@ -1180,8 +1199,9 @@ function loadStoredHistoryRecords(): HistoryRecord[] {
 
         return {
           ...record,
-          title: typeof record.title === 'string' && record.title ? record.title : '历史点评记录',
+          title: normalizeHistoryTitle(record.title, genre, createdAt),
           imageUrl: getPersistedImageUrl(record.imageUrl),
+          optimizedImageUrl: getPersistedImageUrl(record.optimizedImageUrl) || undefined,
           fileName: typeof record.fileName === 'string' ? record.fileName : '未命名照片',
           medium,
           subject: genre,
@@ -1232,6 +1252,7 @@ async function syncReportHistoryToProject(historyRecords: HistoryRecord[]) {
 
 function App() {
   const [currentPage, setCurrentPage] = useState('home');
+  const [isPageEntering, setIsPageEntering] = useState(false);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [selectedMedium, setSelectedMedium] = useState<Medium>('数码摄影');
   const [selectedGenre, setSelectedGenre] = useState<Genre>('街头摄影');
@@ -1252,6 +1273,8 @@ function App() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const historySyncTimerRef = useRef<number | null>(null);
   const analysisAbortRef = useRef<AbortController | null>(null);
+  const pageEntryTimerRef = useRef<number | null>(null);
+  const homeEntrancePlayedRef = useRef(false);
 
   const currentDate = useMemo(
     () =>
@@ -1308,11 +1331,38 @@ function App() {
     return () => analysisAbortRef.current?.abort();
   }, []);
 
+  useEffect(() => {
+    return () => {
+      if (pageEntryTimerRef.current) {
+        window.clearTimeout(pageEntryTimerRef.current);
+      }
+    };
+  }, []);
+
   function goToPage(page: Page) {
-    setCurrentPage(page);
+    const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    const entryDuration = page === 'review' || page === 'history' ? 900 : 680;
+
+    if (pageEntryTimerRef.current) {
+      window.clearTimeout(pageEntryTimerRef.current);
+      pageEntryTimerRef.current = null;
+    }
+
+    flushSync(() => {
+      setCurrentPage(page);
+      setIsPageEntering(!reduceMotion);
+    });
+
+    if (!reduceMotion) {
+      pageEntryTimerRef.current = window.setTimeout(() => {
+        setIsPageEntering(false);
+        pageEntryTimerRef.current = null;
+      }, entryDuration);
+    }
+
     window.setTimeout(() => {
-      const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
-      window.scrollTo({ top: 0, behavior: reduceMotion ? 'auto' : 'smooth' });
+      const shouldReduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+      window.scrollTo({ top: 0, behavior: shouldReduceMotion ? 'auto' : 'smooth' });
       document.querySelector<HTMLElement>('main')?.focus({ preventScroll: true });
     }, 0);
   }
@@ -1398,7 +1448,7 @@ function App() {
     analysisAbortRef.current = requestController;
     setAnalysisElapsedSeconds(0);
     setIsAnalyzing(true);
-    setAnalysisState({ kind: 'analyzing', phase: 'preparing', message: '正在准备图片。' });
+    setAnalysisState({ kind: 'analyzing', phase: 'preparing', message: '正在准备照片。' });
     setReport(null);
     setCopyStatus('复制报告文字');
 
@@ -1410,7 +1460,7 @@ function App() {
 
     try {
       if (!uploadedFile) {
-        throw new Error('缺少原始上传文件，无法发送到分析接口。');
+        throw new Error('缺少照片文件，无法开始点评。');
       }
 
       console.log('original file size:', uploadedFile.size);
@@ -1438,7 +1488,7 @@ function App() {
       return;
     }
 
-    setAnalysisState({ kind: 'analyzing', phase: 'connecting', message: '正在连接分析服务。' });
+    setAnalysisState({ kind: 'analyzing', phase: 'connecting', message: '正在准备分析。' });
     const phaseTimerId = window.setTimeout(() => {
       if (!requestController.signal.aborted) {
         setAnalysisState({ kind: 'analyzing', phase: 'analyzing', message: '正在分析构图、光线与画面关系。' });
@@ -1467,7 +1517,7 @@ function App() {
         return;
       }
 
-      setAnalysisState({ kind: 'ai', message: '本次报告由实时图像分析生成。' });
+      setAnalysisState({ kind: 'ai', message: '这份结果已根据当前照片生成。' });
     } catch (error) {
       window.clearTimeout(phaseTimerId);
 
@@ -1480,10 +1530,10 @@ function App() {
 
       console.warn('AI request failed, using mock fallback', error);
       reportSource = 'mock';
-      analysisError = getErrorMessage(error, '分析服务暂时不可用。');
+      analysisError = getErrorMessage(error, '暂时无法生成专属结果。');
       setAnalysisState({
         kind: 'mock',
-        message: `分析服务暂时不可用，当前显示示例报告。${analysisError}`,
+        message: '暂时无法生成专属结果，当前展示一份示例结果。',
       });
     }
 
@@ -1597,21 +1647,27 @@ function App() {
     const issueLabel = improvementPriority === 'none' ? '当前判断' : improvementPriority === 'optional' ? '待优化' : '主要问题';
     const priorityIssueLabel = improvementPriority === 'none' ? '当前判断' : improvementPriority === 'optional' ? '待优化' : '优先问题';
     const scoreText = scoreNames.map((name) => `${name}：${reportToCopy.scores[name]}/100\n评分依据：${scoreReasons[name]}`).join('\n');
-    const postProcessingText = [
-      `1. 裁剪建议：${postProcessing.crop.suggestion}\n理由：${postProcessing.crop.reason}\n预期效果：${postProcessing.crop.expectedEffect}`,
-      `2. 影调修改建议：${postProcessing.tone.suggestion}\n理由：${postProcessing.tone.reason}\n预期效果：${postProcessing.tone.expectedEffect}`,
-      `3. 蒙版提亮 / 压暗建议：${postProcessing.masking.suggestion}\n理由：${postProcessing.masking.reason}\n预期效果：${postProcessing.masking.expectedEffect}`,
-    ].join('\n');
+    const postProcessingText = reportToCopy.optimizationPlan?.items.length
+      ? reportToCopy.optimizationPlan.items.map((item, index) => `${index + 1}. ${item.instruction}\n理由：${item.reason}\n预期变化：${item.expectedEffect}`).join('\n')
+      : [
+        `1. ${postProcessing.crop.suggestion}\n理由：${postProcessing.crop.reason}\n预期变化：${postProcessing.crop.expectedEffect}`,
+        `2. ${postProcessing.tone.suggestion}\n理由：${postProcessing.tone.reason}\n预期变化：${postProcessing.tone.expectedEffect}`,
+        `3. ${postProcessing.masking.suggestion}\n理由：${postProcessing.masking.reason}\n预期变化：${postProcessing.masking.expectedEffect}`,
+      ].join('\n');
     const nextShootingText = [nextShooting.summary, ...nextShooting.items.map((item, index) => `${index + 1}. ${item}`)].join('\n');
 
-    const text = `PhotoSense AI 摄影评审报告\n影像介质：${reportMedium}\n摄影题材：${reportGenre}\n评价水平：${reportSkillLevel}\n\n本次评价基准\n影像介质：${reviewContext.mediumFocus}\n评价水平：${reviewContext.levelFocus}\n摄影题材：${reviewContext.genreFocus}\n评分侧重：${reviewContext.scoringLogic}\n\n评审结论\n${reportVerdict.title}\n${reportVerdict.summary}\n${issueLabel}：${reportVerdict.mainIssue}\n下一步：${reportVerdict.nextStep}\n\n照片重点\n值得保留：${photoSpecific.strength}\n${priorityIssueLabel}：${photoSpecific.priorityIssue}\n画面区域：${photoSpecific.affectedArea}\n下一步动作：${photoSpecific.nextAction}\n裁剪参考：${photoSpecific.crop.ratio}，${photoSpecific.crop.direction}\n裁剪理由：${photoSpecific.crop.rationale}\n\n总体印象\n${reportToCopy.overall}\n\n评分\n${scoreText}\n\n构图分析\n${reportToCopy.composition}\n\n光线分析\n${reportToCopy.lighting}\n\n色彩分析\n${reportToCopy.colour}\n\n叙事分析\n${reportToCopy.storytelling}\n\n技术完成度\n${reportToCopy.technical}\n\n后期建议\n${postProcessingText}\n\n下次拍摄建议\n${nextShootingText}`;
+    const text = `PhotoSense AI 摄影评审报告\n影像介质：${reportMedium}\n摄影题材：${reportGenre}\n反馈深度：${reportSkillLevel}\n\n评审依据\n影像介质：${reportMedium}\n反馈深度：${reportSkillLevel}\n摄影题材：${reportGenre}\n主要观察：${reviewContext.scoringLogic}\n\n评审结论\n${reportVerdict.title}\n${reportVerdict.summary}\n${issueLabel}：${reportVerdict.mainIssue}\n下一步：${reportVerdict.nextStep}\n\n照片重点\n值得保留：${photoSpecific.strength}\n${priorityIssueLabel}：${photoSpecific.priorityIssue}\n画面区域：${photoSpecific.affectedArea}\n下一步动作：${photoSpecific.nextAction}\n裁剪参考：${photoSpecific.crop.ratio}，${photoSpecific.crop.direction}\n裁剪理由：${photoSpecific.crop.rationale}\n\n总体印象\n${reportToCopy.overall}\n\n评分\n${scoreText}\n\n构图分析\n${reportToCopy.composition}\n\n光线分析\n${reportToCopy.lighting}\n\n色彩分析\n${reportToCopy.colour}\n\n叙事分析\n${reportToCopy.storytelling}\n\n技术完成度\n${reportToCopy.technical}\n\n优化建议\n${postProcessingText}\n\n如果当时再拍一次\n${nextShootingText}`;
+
+    const userFacingText = text
+      .replace('主要观察：', '评审依据：')
+      .replace(`${issueLabel}：${reportVerdict.mainIssue}\n下一步：${reportVerdict.nextStep}`, `优化建议：${reportVerdict.mainIssue}\n建议：${reportVerdict.nextStep}`);
 
     try {
       if (navigator.clipboard) {
-        await navigator.clipboard.writeText(text);
+        await navigator.clipboard.writeText(userFacingText);
       } else {
         const copyArea = document.createElement('textarea');
-        copyArea.value = text;
+        copyArea.value = userFacingText;
         document.body.appendChild(copyArea);
         copyArea.select();
         document.execCommand('copy');
@@ -1647,8 +1703,18 @@ function App() {
     }
   }
 
+  async function handleSaveOptimizedImage(recordId: string, optimizedImageUrl: string) {
+    const persistedImageUrl = await compressOptimizedImageForHistory(optimizedImageUrl);
+    setHistoryRecords((records) => records.map((record) => (
+      record.id === recordId ? { ...record, optimizedImageUrl: persistedImageUrl } : record
+    )));
+    setActiveRecord((record) => (
+      record?.id === recordId ? { ...record, optimizedImageUrl: persistedImageUrl } : record
+    ));
+  }
+
   return (
-    <div className="app-shell">
+    <div className={`app-shell app-shell-${currentPage}${isPageEntering ? ' is-page-entering' : ''}`}>
       <a className="skip-link" href="#main-content">跳到主要内容</a>
       <header className="site-header">
         <button className="brand brand-button" type="button" onClick={() => goToPage('home')} aria-label="PhotoSense AI 首页">
@@ -1693,7 +1759,15 @@ function App() {
         </div>
       </header>
 
-      {currentPage === 'home' && <HomePage onStartReview={() => goToPage('review')} />}
+      {currentPage === 'home' && (
+        <HomePage
+          onStartReview={() => goToPage('review')}
+          isInitialEntry={!homeEntrancePlayedRef.current}
+          onInitialEntryStart={() => {
+            homeEntrancePlayedRef.current = true;
+          }}
+        />
+      )}
 
       {currentPage === 'review' && (
         <ReviewPage
@@ -1743,6 +1817,7 @@ function App() {
           isAnalyzing={isAnalyzing}
           onCopyReport={handleCopyReport}
           onRetryAnalysis={handleRetryAnalysis}
+          onSaveOptimizedImage={handleSaveOptimizedImage}
           onStartReview={() => goToPage('review')}
           report={report}
           selectedGenre={selectedGenre}
@@ -1763,23 +1838,67 @@ function App() {
       {currentPage === 'register' && <RegisterPage onAuthSuccess={handleAuthSuccess} onSwitch={() => goToPage('login')} />}
 
       <footer className="site-footer">
-        <p>用于整理摄影反馈与复盘记录的 AI 辅助工具。</p>
+        <p>Photosense AI · Made by Yune · 2026</p>
       </footer>
     </div>
   );
 }
 
-function HomePage({ onStartReview }: { onStartReview: () => void }) {
+function HomePage({
+  onStartReview,
+  isInitialEntry,
+  onInitialEntryStart,
+}: {
+  onStartReview: () => void;
+  isInitialEntry: boolean;
+  onInitialEntryStart: () => void;
+}) {
   const [activeShowcaseId, setActiveShowcaseId] = useState<(typeof homeShowcaseItems)[number]['id']>(homeShowcaseItems[0].id);
+  const [comparisonView, setComparisonView] = useState<'before' | 'after'>('before');
   const [isCarouselPaused, setIsCarouselPaused] = useState(false);
   const [isCollagePaused, setIsCollagePaused] = useState(false);
   const [frontCollageIndex, setFrontCollageIndex] = useState(0);
   const [previousCollageIndex, setPreviousCollageIndex] = useState<number | null>(null);
-  const [isIntroVisible, setIsIntroVisible] = useState(true);
-  const [selectedGalleryIndex, setSelectedGalleryIndex] = useState<number | null>(8);
+  const [isIntroVisible, setIsIntroVisible] = useState(!isInitialEntry);
+  const [showcaseStatus, setShowcaseStatus] = useState('');
+  const [selectedGalleryIndex, setSelectedGalleryIndex] = useState<number | null>(isInitialEntry ? null : 8);
+  const [isShowcaseImageFading, setIsShowcaseImageFading] = useState(false);
+  const initialRevealTimerRef = useRef<number | null>(null);
+  const showcaseImageMountedRef = useRef(false);
   const activeShowcase = homeShowcaseItems.find((item) => item.id === activeShowcaseId) ?? homeShowcaseItems[0];
   const selectedGalleryPhoto = selectedGalleryIndex === null ? null : homeBackgroundCollage[selectedGalleryIndex];
-  const selectedGalleryResult = selectedGalleryPhoto ? homeGalleryResults.find((item) => item.src === selectedGalleryPhoto.src) : null;
+
+  const transitionIntroVisibility = (nextVisible: boolean) => {
+    const updateVisibility = () => flushSync(() => {
+      setSelectedGalleryIndex(null);
+      setIsIntroVisible(nextVisible);
+    });
+    const transitionDocument = document as Document & {
+      startViewTransition?: (update: () => void) => void;
+    };
+
+    if (transitionDocument.startViewTransition && !window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
+      transitionDocument.startViewTransition(updateVisibility);
+      return;
+    }
+
+    updateVisibility();
+  };
+
+  useEffect(() => {
+    onInitialEntryStart();
+    if (!isInitialEntry) return undefined;
+
+    const timerId = window.setTimeout(() => {
+      initialRevealTimerRef.current = null;
+      transitionIntroVisibility(true);
+    }, 1_000);
+    initialRevealTimerRef.current = timerId;
+    return () => {
+      window.clearTimeout(timerId);
+      if (initialRevealTimerRef.current === timerId) initialRevealTimerRef.current = null;
+    };
+  }, [isInitialEntry]);
 
   useEffect(() => {
     if (isCarouselPaused || !isIntroVisible || window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return undefined;
@@ -1789,10 +1908,35 @@ function HomePage({ onStartReview }: { onStartReview: () => void }) {
         const currentIndex = homeShowcaseItems.findIndex((item) => item.id === currentId);
         return homeShowcaseItems[(currentIndex + 1) % homeShowcaseItems.length].id;
       });
-    }, 5_000);
+    }, 9_000);
+
+    return () => window.clearInterval(timerId);
+  }, [isCarouselPaused, isIntroVisible]);
+
+  useEffect(() => {
+    if (isCarouselPaused || !isIntroVisible || window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return undefined;
+
+    const timerId = window.setInterval(() => {
+      setComparisonView((currentView) => currentView === 'before' ? 'after' : 'before');
+    }, 4_500);
 
     return () => window.clearInterval(timerId);
   }, [activeShowcaseId, isCarouselPaused, isIntroVisible]);
+
+  useEffect(() => {
+    setComparisonView('before');
+  }, [activeShowcaseId]);
+
+  useEffect(() => {
+    if (!showcaseImageMountedRef.current) {
+      showcaseImageMountedRef.current = true;
+      return undefined;
+    }
+
+    setIsShowcaseImageFading(true);
+    const timerId = window.setTimeout(() => setIsShowcaseImageFading(false), 220);
+    return () => window.clearTimeout(timerId);
+  }, [activeShowcaseId, comparisonView]);
 
   useEffect(() => {
     if (isCollagePaused || window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return undefined;
@@ -1821,20 +1965,12 @@ function HomePage({ onStartReview }: { onStartReview: () => void }) {
   };
 
   const handleToggleIntro = () => {
-    const updateVisibility = () => flushSync(() => {
-      setSelectedGalleryIndex(null);
-      setIsIntroVisible((visible) => !visible);
-    });
-    const transitionDocument = document as Document & {
-      startViewTransition?: (update: () => void) => void;
-    };
-
-    if (transitionDocument.startViewTransition && !window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
-      transitionDocument.startViewTransition(updateVisibility);
-      return;
+    if (initialRevealTimerRef.current !== null) {
+      window.clearTimeout(initialRevealTimerRef.current);
+      initialRevealTimerRef.current = null;
     }
 
-    updateVisibility();
+    transitionIntroVisibility(!isIntroVisible);
   };
 
   return (
@@ -1843,6 +1979,24 @@ function HomePage({ onStartReview }: { onStartReview: () => void }) {
       id="main-content"
       tabIndex={-1}
     >
+      <div className="home-view-controls">
+        <button
+          type="button"
+          aria-controls="home-intro-content"
+          aria-expanded={isIntroVisible}
+          aria-label={isIntroVisible ? '隐藏介绍' : '显示介绍'}
+          className={`home-content-toggle${isIntroVisible ? '' : ' is-intro-hidden'}`}
+          onClick={handleToggleIntro}
+          title={isIntroVisible ? '隐藏介绍' : '显示介绍'}
+        >
+          <svg viewBox="0 0 28 20" aria-hidden="true">
+            <path className="home-eye-outline" d="M1.8 10s4.4-7 12.2-7 12.2 7 12.2 7-4.4 7-12.2 7S1.8 10 1.8 10Z" />
+            <circle className="home-eye-pupil" cx="14" cy="10" r="3.4" />
+            {!isIntroVisible ? <path className="home-eye-slash" d="m4 2 20 16" /> : null}
+          </svg>
+        </button>
+      </div>
+
       <div
         className="home-gallery-background"
         aria-hidden={isIntroVisible || undefined}
@@ -1856,13 +2010,15 @@ function HomePage({ onStartReview }: { onStartReview: () => void }) {
             className={`home-collage-card ${className}${index === frontCollageIndex ? ' is-collage-front' : ''}${index === previousCollageIndex ? ' is-collage-behind' : ''}`}
             key={`${className}-${src}`}
             aria-label={isIntroVisible ? undefined : `查看照片 ${String(index + 1).padStart(2, '0')}`}
-            tabIndex={isIntroVisible ? -1 : 0}
+            tabIndex={!isIntroVisible && index === frontCollageIndex ? 0 : -1}
             onClick={(event) => {
               event.stopPropagation();
               if (!isIntroVisible) setSelectedGalleryIndex(index);
             }}
             onMouseEnter={() => setIsCollagePaused(true)}
             onMouseLeave={() => setIsCollagePaused(false)}
+            onFocus={() => setIsCollagePaused(true)}
+            onBlur={() => setIsCollagePaused(false)}
           >
             <span className="home-collage-photo">
               <img src={src} alt="" loading={index < 6 ? 'eager' : 'lazy'} />
@@ -1871,29 +2027,15 @@ function HomePage({ onStartReview }: { onStartReview: () => void }) {
         ))}
       </div>
 
-      <button
-        type="button"
-        aria-controls="home-intro-content"
-        aria-expanded={isIntroVisible}
-        aria-label={isIntroVisible ? '隐藏介绍' : '显示介绍'}
-        className={`home-content-toggle${isIntroVisible ? '' : ' is-intro-hidden'}`}
-        onClick={handleToggleIntro}
-        title={isIntroVisible ? '隐藏介绍' : '显示介绍'}
-      >
-        <svg viewBox="0 0 28 20" aria-hidden="true">
-          <path className="home-eye-outline" d="M1.8 10s4.4-7 12.2-7 12.2 7 12.2 7-4.4 7-12.2 7S1.8 10 1.8 10Z" />
-          <circle className="home-eye-pupil" cx="14" cy="10" r="3.4" />
-          {!isIntroVisible ? <path className="home-eye-slash" d="m4 2 20 16" /> : null}
-        </svg>
-      </button>
+      <BackgroundRippleLayer hidden={!isIntroVisible} />
 
       {!isIntroVisible && selectedGalleryPhoto && selectedGalleryIndex !== null ? (
-        <section className="home-gallery-focus" aria-label="照片墙照片预览" aria-live="polite">
+        <section className="home-gallery-focus" aria-label="照片墙照片大图预览">
           <figure className="home-gallery-focus-frame" key={selectedGalleryPhoto.src}>
             <button
               className="home-gallery-focus-close"
               type="button"
-              aria-label="关闭照片分析"
+              aria-label="关闭照片预览"
               onClick={() => setSelectedGalleryIndex(null)}
             >
               <span aria-hidden="true">×</span>
@@ -1901,134 +2043,160 @@ function HomePage({ onStartReview }: { onStartReview: () => void }) {
             <img
               className="home-gallery-focus-image"
               src={selectedGalleryPhoto.src}
-              alt={selectedGalleryResult?.alt || `照片墙照片 ${String(selectedGalleryIndex + 1).padStart(2, '0')}`}
+              alt={`照片墙照片 ${String(selectedGalleryIndex + 1).padStart(2, '0')}`}
             />
           </figure>
-          <article className="home-report-preview home-gallery-result">
-            <header>
-              <span>分析结果</span>
-            </header>
-            <div className="home-report-preview-grid">
-              <div className="home-report-score">
-                <span>综合评分</span>
-                {selectedGalleryResult ? <strong>{selectedGalleryResult.score}<small>/100</small></strong> : <strong className="is-pending">暂不可用</strong>}
-              </div>
-              <div>
-                <span>评审结论</span>
-                <p>{selectedGalleryResult?.verdict || '这张照片的分析结果暂时无法读取。'}</p>
-              </div>
-              <div>
-                <span>微调建议</span>
-                <p>{selectedGalleryResult?.action || '请稍后重新打开这张照片。'}</p>
-              </div>
-            </div>
-          </article>
         </section>
       ) : null}
 
       <div className="home-intro-content" id="home-intro-content" hidden={!isIntroVisible}>
 
       <section className="home-showcase" aria-labelledby="hero-title">
-        <div className="home-showcase-stage">
-          <img className="home-showcase-image" src={activeShowcase.src} alt={activeShowcase.alt} />
-          <div className="home-showcase-caption">
-            <span>{activeShowcase.title}</span>
-          </div>
-        </div>
-
-        <div className="home-showcase-console">
-          <div className="home-showcase-intro">
-            <p className="eyebrow">摄影点评与学习</p>
-            <h1 id="hero-title"><span>PhotoSense</span><span>AI</span></h1>
-            <p className="hero-text">
-              上传一张照片，结合影像介质、摄影题材与评价水平，从构图、光线、色彩、叙事和技术完成度整理出可执行的摄影反馈。
-            </p>
-            <button className="primary-link" type="button" onClick={onStartReview}>
-              开始点评
-            </button>
-          </div>
-
-          <div
-            className="home-photo-browser"
-            onMouseEnter={() => setIsCarouselPaused(true)}
-            onMouseLeave={() => setIsCarouselPaused(false)}
-            onFocusCapture={() => setIsCarouselPaused(true)}
-            onBlurCapture={handleFilmBlur}
-          >
-            <div className="home-photo-choice-list" role="list" aria-label="首页摄影作品示例">
-              <div className="home-photo-choice-track">
-              {[...homeShowcaseItems, ...homeShowcaseItems].map((item, index) => {
-                const isActive = item.id === activeShowcase.id;
-                const isDuplicate = index >= homeShowcaseItems.length;
-                const selectItem = () => setActiveShowcaseId(item.id);
-
-                return (
-                  <div role={isDuplicate ? undefined : 'listitem'} aria-hidden={isDuplicate || undefined} key={`${item.id}-${isDuplicate ? 'duplicate' : 'primary'}`}>
-                    <button
-                      className={`home-photo-choice${isActive ? ' is-active' : ''}`}
-                      type="button"
-                      data-duplicate={isDuplicate ? 'true' : undefined}
-                      tabIndex={isDuplicate ? -1 : undefined}
-                      aria-controls={isDuplicate ? undefined : 'home-report-preview'}
-                      aria-label={isDuplicate ? undefined : `查看「${item.title}」及对应示例报告`}
-                      aria-pressed={isDuplicate ? undefined : isActive}
-                      onClick={selectItem}
-                      onFocus={isDuplicate ? undefined : selectItem}
-                      onMouseEnter={selectItem}
-                    >
-                      <img src={item.src} alt="" loading="lazy" />
-                    </button>
-                  </div>
-                );
-              })}
+        <div className="home-workbench">
+          <div className="home-showcase-stage">
+            <div className="home-comparison-toggle" role="group" aria-label={`${activeShowcase.title}前后对比`}>
+              <button
+                className={`home-comparison-button${comparisonView === 'before' ? ' is-active' : ''}`}
+                type="button"
+                data-view="before"
+                aria-pressed={comparisonView === 'before'}
+                onClick={() => setComparisonView('before')}
+                onFocus={() => setIsCarouselPaused(true)}
+                onBlur={() => setIsCarouselPaused(false)}
+              >
+                修改前
+              </button>
+              <button
+                className={`home-comparison-button${comparisonView === 'after' ? ' is-active' : ''}`}
+                type="button"
+                data-view="after"
+                aria-pressed={comparisonView === 'after'}
+                onClick={() => setComparisonView('after')}
+                onFocus={() => setIsCarouselPaused(true)}
+                onBlur={() => setIsCarouselPaused(false)}
+              >
+                修改后
+              </button>
+            </div>
+            <img
+              className={`home-showcase-image${isShowcaseImageFading ? ' is-fading' : ''}`}
+              id="home-showcase-image"
+              src={comparisonView === 'before' ? activeShowcase.src : activeShowcase.afterSrc}
+              alt={`${activeShowcase.alt}，${comparisonView === 'before' ? '修改前' : '优化后'}`}
+            />
+            <div className="home-showcase-caption">
+              <strong className="home-showcase-caption-title">{activeShowcase.title}</strong>
+              <div className="home-showcase-caption-meta" aria-label={`${activeShowcase.title}照片属性`}>
+                <span>{activeShowcase.medium}</span>
+                <span>{activeShowcase.skillLevel}</span>
+                <span>{activeShowcase.genre}</span>
               </div>
             </div>
           </div>
 
-          <article className="home-report-preview" id="home-report-preview" aria-live="polite" aria-atomic="true">
-            <header>
-              <strong>分析结果</strong>
-            </header>
-            <div className="home-report-preview-grid">
-              <div className="home-report-score">
-                <span>综合评分</span>
-                <strong>{activeShowcase.score}</strong>
-                <small>/100</small>
+          <aside className="home-review-column" aria-label="摄影评审与优化预览示例">
+            <div className="home-showcase-intro">
+              <div className="home-showcase-title">
+                <div className="home-title-row">
+                  <h1 id="hero-title">Photosense AI</h1>
+                </div>
               </div>
-              <div>
-                <span>一句话结论</span>
-                <strong>{activeShowcase.verdict}</strong>
+              <p className="hero-text">摄影评审与优化建议</p>
+              <button className="primary-link" type="button" onClick={onStartReview}>
+                开始点评
+              </button>
+            </div>
+
+            <article className="home-report-preview" id="home-report-preview" aria-live="off">
+              <section className="home-report-section">
+                <h2>评审结论</h2>
+                <p>{activeShowcase.verdict}</p>
+              </section>
+              <section className="home-report-section home-report-actions">
+                <h2>优化建议</h2>
+                <ol>
+                  {activeShowcase.suggestions.map((suggestion, index) => (
+                    <li key={`${activeShowcase.id}-suggestion-${index}`}>
+                      <span className="home-suggestion-index" aria-hidden="true">{index + 1}</span>
+                      <p>{suggestion}</p>
+                    </li>
+                  ))}
+                </ol>
+              </section>
+            </article>
+
+            <div
+              className="home-photo-browser"
+              onMouseEnter={() => setIsCarouselPaused(true)}
+              onMouseLeave={() => setIsCarouselPaused(false)}
+              onFocusCapture={() => setIsCarouselPaused(true)}
+              onBlurCapture={handleFilmBlur}
+            >
+              <div className="home-film-perforations home-film-perforations-top" aria-hidden="true">
+                {Array.from({ length: 24 }, (_, index) => <i key={`top-hole-${index}`} />)}
               </div>
-              <div>
-                <span>微调建议</span>
-                <strong>{activeShowcase.action}</strong>
+              <div className="home-photo-choice-list" role="list" aria-label="首页摄影作品示例">
+                <div className="home-photo-choice-track">
+                {[...homeShowcaseItems, ...homeShowcaseItems].map((item, index) => {
+                  const isActive = item.id === activeShowcase.id;
+                  const isDuplicate = index >= homeShowcaseItems.length;
+                  const selectItem = () => {
+                    setActiveShowcaseId(item.id);
+                    if (!isDuplicate) setShowcaseStatus(`已选择「${item.title}」，可切换查看修改前后`);
+                  };
+
+                  return (
+                    <div role={isDuplicate ? undefined : 'listitem'} aria-hidden={isDuplicate || undefined} key={`${item.id}-${isDuplicate ? 'duplicate' : 'primary'}`}>
+                      <button
+                        className={`home-photo-choice${isActive ? ' is-active' : ''}`}
+                        type="button"
+                        data-duplicate={isDuplicate ? 'true' : undefined}
+                        tabIndex={isDuplicate ? -1 : undefined}
+                        aria-controls={isDuplicate ? undefined : 'home-report-preview'}
+                        aria-label={isDuplicate ? undefined : `查看「${item.title}」及对应前后对比`}
+                        aria-pressed={isDuplicate ? undefined : isActive}
+                        onClick={selectItem}
+                        onFocus={isDuplicate ? undefined : selectItem}
+                        onMouseEnter={selectItem}
+                      >
+                        <img src={item.src} alt="" loading="lazy" />
+                      </button>
+                    </div>
+                  );
+                })}
+                </div>
+              </div>
+              <div className="home-film-perforations home-film-perforations-bottom" aria-hidden="true">
+                {Array.from({ length: 24 }, (_, index) => <i key={`bottom-hole-${index}`} />)}
               </div>
             </div>
-          </article>
+          </aside>
         </div>
+
+        <p className="visually-hidden" role="status" aria-live="polite">{showcaseStatus}</p>
       </section>
 
       <section className="home-flow-panel" aria-label="PhotoSense AI 使用流程">
         <ol className="flow-steps">
           <li>
             <span>01</span>
-            <strong>上传一张照片</strong>
-            <p>上传作品，并确认照片与基础信息。</p>
+            <strong>上传照片</strong>
+            <p>选择一张想要理解和改进的摄影作品。</p>
           </li>
           <li>
             <span>02</span>
-            <strong>选择照片属性</strong>
-            <p>选择影像介质、摄影题材和评价水平。</p>
+            <strong>选择属性</strong>
+            <p>确认影像介质、摄影题材和评价水平。</p>
           </li>
           <li>
             <span>03</span>
-            <strong>查看反馈报告</strong>
-            <p>从多个观察角度理解画面问题。</p>
+            <strong>生成报告</strong>
+            <p>从结论、评审依据到五维诊断，读懂这张照片。</p>
           </li>
           <li>
             <span>04</span>
-            <strong>复盘分析记录</strong>
-            <p>之后可以在历史记录中回看。</p>
+            <strong>回顾学习</strong>
+            <p>在历史记录中回看报告与优化前后变化。</p>
           </li>
         </ol>
       </section>
@@ -2037,6 +2205,101 @@ function HomePage({ onStartReview }: { onStartReview: () => void }) {
 
     </main>
   );
+}
+
+function SharedHomePhotoBackground({
+  page,
+  isContentVisible = true,
+}: {
+  page: 'review' | 'history' | 'login' | 'register';
+  isContentVisible?: boolean;
+}) {
+  const [isCollagePaused, setIsCollagePaused] = useState(false);
+  const [frontCollageIndex, setFrontCollageIndex] = useState(0);
+  const [previousCollageIndex, setPreviousCollageIndex] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (isCollagePaused || window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return undefined;
+
+    const timerId = window.setTimeout(() => {
+      setPreviousCollageIndex(frontCollageIndex);
+      setFrontCollageIndex((frontCollageIndex + 1) % homeBackgroundCollage.length);
+    }, 7_000);
+
+    return () => window.clearTimeout(timerId);
+  }, [frontCollageIndex, isCollagePaused]);
+
+  return (
+    <div className={`shared-home-photo-background page-home${isCollagePaused ? ' is-collage-paused' : ''}${isContentVisible ? '' : ' is-gallery-only'}`} aria-hidden="true">
+      <div className="home-gallery-background" aria-hidden="true" data-background-page={page}>
+        {homeBackgroundCollage.map(({ src, className }, index) => (
+          <span
+            className={`home-collage-card ${className}${index === frontCollageIndex ? ' is-collage-front' : ''}${index === previousCollageIndex ? ' is-collage-behind' : ''}`}
+            key={`${page}-${className}-${src}`}
+            onMouseEnter={() => setIsCollagePaused(true)}
+            onMouseLeave={() => setIsCollagePaused(false)}
+          >
+            <span className="home-collage-photo">
+              <img src={src} alt="" loading={index < 6 ? 'eager' : 'lazy'} />
+            </span>
+          </span>
+        ))}
+      </div>
+      <BackgroundRippleLayer hidden={!isContentVisible} />
+    </div>
+  );
+}
+
+function BackgroundRippleLayer({ hidden = false }: { hidden?: boolean }) {
+  const rippleRef = useRef<HTMLSpanElement>(null);
+
+  useEffect(() => {
+    const ripple = rippleRef.current;
+    if (!ripple) return undefined;
+    if (hidden) {
+      ripple.classList.remove('is-pointer-resting');
+      return undefined;
+    }
+
+    let restTimer: number | null = null;
+
+    const clearRestTimer = () => {
+      if (restTimer !== null) {
+        window.clearTimeout(restTimer);
+        restTimer = null;
+      }
+    };
+
+    const hideRipple = () => {
+      clearRestTimer();
+      ripple.classList.remove('is-pointer-resting');
+    };
+
+    const handlePointerMove = (event: PointerEvent) => {
+      if (event.pointerType === 'touch') return;
+
+      const bounds = ripple.getBoundingClientRect();
+      ripple.style.setProperty('--ripple-x', `${event.clientX - bounds.left}px`);
+      ripple.style.setProperty('--ripple-y', `${event.clientY - bounds.top}px`);
+      ripple.classList.remove('is-pointer-resting');
+      clearRestTimer();
+      restTimer = window.setTimeout(() => {
+        ripple.classList.add('is-pointer-resting');
+        restTimer = null;
+      }, 220);
+    };
+
+    window.addEventListener('pointermove', handlePointerMove, { passive: true });
+    window.addEventListener('blur', hideRipple);
+
+    return () => {
+      clearRestTimer();
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('blur', hideRipple);
+    };
+  }, [hidden]);
+
+  return <span ref={rippleRef} className={`background-ripple-layer${hidden ? ' is-hidden' : ''}`} aria-hidden="true" />;
 }
 
 type ReviewPageProps = {
@@ -2116,6 +2379,7 @@ function ReviewPage({
 
   return (
     <main className="page-main page-review" id="main-content" tabIndex={-1}>
+      <SharedHomePhotoBackground page="review" />
       <header className="page-intro review-page-intro">
         <div>
           <p className="panel-kicker">Photo review desk</p>
@@ -2329,15 +2593,13 @@ function ReviewPage({
                   <img src={imageUrl} alt="已上传照片预览" />
                 ) : (
                   <div className="empty-preview light-table-empty">
-                    <span>待审</span>
+                    <span>待上传</span>
                     <p>上传后会在灯台区域生成大图预览</p>
                   </div>
                 )}
               </div>
 
-              <div className="frame-metadata" aria-label="已上传照片信息">
-                <span>{fileName ? '已上传' : '尚未选择文件'}</span>
-                {fileName ? <span>{fileName}</span> : null}
+              <div className="frame-metadata" aria-label="照片属性">
                 <span>{selectedMedium}</span>
                 <span>{skillLevel}</span>
                 <span>{selectedGenre}</span>
@@ -2367,6 +2629,7 @@ type ReportPageProps = {
   isAnalyzing: boolean;
   onCopyReport: () => void;
   onRetryAnalysis: () => void;
+  onSaveOptimizedImage: (recordId: string, optimizedImageUrl: string) => Promise<void>;
   onStartReview: () => void;
   report: Report | null;
   selectedGenre: Genre;
@@ -2375,11 +2638,10 @@ type ReportPageProps = {
 };
 
 const reportNavItems = [
-  { id: 'report-overview', label: '总览' },
+  { id: 'report-overview', label: '评审结论' },
   { id: 'report-dimensions', label: '五维诊断' },
-  { id: 'report-post-processing', label: '后期建议' },
-  { id: 'report-next-actions', label: '下次行动' },
-  { id: 'report-context', label: '补充说明' },
+  { id: 'report-post-processing', label: '优化建议' },
+  { id: 'report-context', label: '评审依据' },
 ];
 
 function ReportPage({
@@ -2393,6 +2655,7 @@ function ReportPage({
   isAnalyzing,
   onCopyReport,
   onRetryAnalysis,
+  onSaveOptimizedImage,
   onStartReview,
   report,
   selectedGenre,
@@ -2407,13 +2670,15 @@ function ReportPage({
   const displayedSkillLevel = activeRecord?.skillLevel ?? skillLevel;
   const displayedDate = activeRecord?.date ?? currentDate;
   const displayedSource: ReportSource = activeRecord?.reportSource ?? (analysisState.kind === 'mock' ? 'mock' : analysisState.kind === 'ai' ? 'ai' : 'legacy');
-  const displayedAnalysisError = activeRecord?.analysisError ?? (analysisState.kind === 'mock' || analysisState.kind === 'error' ? analysisState.message : undefined);
-  const displayedSourceLabel = displayedSource === 'ai' ? '实时 AI 分析' : displayedSource === 'mock' ? '示例报告' : '历史报告';
+  const displayedSourceLabel = displayedSource === 'ai' ? '实时结果' : displayedSource === 'mock' ? '示例结果' : '历史记录';
   const displayedSourceMessage = displayedSource === 'ai'
-    ? '本次结果来自图像分析服务。'
+    ? '这份结果根据当前照片与所选摄影语境生成。'
     : displayedSource === 'mock'
-      ? `分析服务暂时不可用，请勿将这份示例报告视为真实照片分析。${displayedAnalysisError ? ` ${displayedAnalysisError}` : ''}`
-      : '这条旧记录没有保存报告来源，建议重新分析。';
+      ? '暂时无法生成这张照片的专属结果，以下内容仅用于展示功能，不代表这张照片的真实分析。'
+      : '这条记录较早，建议重新生成一次结果。';
+  const visibleReportNavItems = displayedSource === 'ai'
+    ? reportNavItems
+    : reportNavItems.filter((item) => item.id !== 'report-post-processing');
   const genreAssessment = displayedReport?.genreAssessment;
   const hasGenreMismatch = displayedSource === 'ai'
     && Boolean(genreAssessment)
@@ -2427,9 +2692,15 @@ function ReportPage({
   const photoSpecific = displayedReport ? getPhotoSpecificFeedback(displayedReport, displayedGenre) : null;
   const nextActions = displayedReport ? getNextShootingActions(displayedReport, displayedGenre) : null;
   const improvementPriority = displayedReport ? getReportImprovementPriority(displayedReport) : 'material';
+  const getDimensionStatus = (name: ScoreName): '优势项' | '待优化' | undefined => {
+    if (scoreSummary?.strongest.name === name) return '优势项';
+    if (improvementPriority !== 'none' && scoreSummary?.weakest.name === name) return '待优化';
+    return undefined;
+  };
   const reportIssueLabel = improvementPriority === 'none' ? '当前判断' : improvementPriority === 'optional' ? '待优化' : '主要问题';
   const photoIssueLabel = improvementPriority === 'none' ? '当前判断' : improvementPriority === 'optional' ? '待优化' : '最优先问题';
   const [activeReportSection, setActiveReportSection] = useState(reportNavItems[0].id);
+  const [reportImageOrientation, setReportImageOrientation] = useState<'portrait' | 'landscape'>('portrait');
   const [exportStatus, setExportStatus] = useState('');
   const [isExporting, setIsExporting] = useState(false);
   const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
@@ -2437,11 +2708,15 @@ function ReportPage({
   const reportExportRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    setReportImageOrientation('portrait');
+  }, [displayedImageUrl]);
+
+  useEffect(() => {
     if (!displayedReport) {
       return undefined;
     }
 
-    const visibleSections = reportNavItems
+    const visibleSections = visibleReportNavItems
       .map((item) => document.getElementById(item.id))
       .filter((section): section is HTMLElement => Boolean(section));
 
@@ -2463,7 +2738,7 @@ function ReportPage({
     const handleDocumentScroll = () => {
       const isAtPageEnd = window.scrollY + window.innerHeight >= document.documentElement.scrollHeight - 12;
       if (isAtPageEnd) {
-        setActiveReportSection(reportNavItems[reportNavItems.length - 1].id);
+        setActiveReportSection(visibleReportNavItems[visibleReportNavItems.length - 1].id);
       }
     };
 
@@ -2474,7 +2749,7 @@ function ReportPage({
       observer.disconnect();
       window.removeEventListener('scroll', handleDocumentScroll);
     };
-  }, [displayedReport]);
+  }, [displayedReport, displayedSource]);
 
   useEffect(() => {
     return () => {
@@ -2577,10 +2852,15 @@ function ReportPage({
 
   return (
     <main className="page-main page-report" id="main-content" tabIndex={-1}>
+      <div className="report-immersive-background" aria-hidden="true">
+        {displayedImageUrl ? <img src={displayedImageUrl} alt="" /> : null}
+        <span className="report-immersive-light" />
+        <BackgroundRippleLayer />
+      </div>
       <section className="report-section page-view" aria-labelledby="report-page-title">
           <header className="report-masthead">
             <div className="report-masthead-copy">
-              <p className="panel-kicker">Photography review</p>
+              <p className="panel-kicker">摄影复盘</p>
               <h1 id="report-page-title">{activeRecord?.title || '分析报告'}</h1>
               <p>
                 {displayedReport
@@ -2634,7 +2914,6 @@ function ReportPage({
                   </span>
                 </div>
               </div>
-                <span className="report-save-status">已自动保存到此浏览器</span>
                 {exportStatus ? <span className="report-share-feedback" role="status">{exportStatus}</span> : null}
               </div>
             ) : null}
@@ -2650,7 +2929,7 @@ function ReportPage({
               </div>
               {displayedSource === 'mock' && canRetryAnalysis ? (
                 <button className="report-retry-button" type="button" onClick={onRetryAnalysis}>
-                  重试实时分析
+                  重新生成结果
                 </button>
               ) : null}
             </div>
@@ -2658,12 +2937,12 @@ function ReportPage({
 
           {hasGenreMismatch && genreAssessment ? (
             <div className="report-genre-warning" role="status">
-              <span className="report-genre-warning-label"><b>01</b>题材核对</span>
+              <span className="report-genre-warning-label">题材核对</span>
               <div>
                 <span className="report-genre-warning-kicker">当前选择与画面判断不一致</span>
                 <strong>你选择了「{displayedGenre}」，画面更接近「{genreAssessment.detectedGenre}」</strong>
                 <p>{genreAssessment.reason} · 判断置信度 {Math.round(genreAssessment.confidence * 100)}%</p>
-                <small>当前报告仍按「{displayedGenre}」标准生成；如需按「{genreAssessment.detectedGenre}」评价，请返回调整后重新分析。</small>
+                <small>当前结果仍围绕「{displayedGenre}」来解读；如需改用「{genreAssessment.detectedGenre}」，请返回调整后重新生成。</small>
               </div>
               <button className="secondary-button compact" type="button" onClick={onStartReview}>
                 调整题材后重新分析
@@ -2681,7 +2960,7 @@ function ReportPage({
           {!isAnalyzing && !displayedReport ? (
             <div className="empty-report empty-report-state">
               <p className="eyebrow">暂无分析报告</p>
-              <h2>请先上传一张照片并完成 AI 点评。</h2>
+              <h2>请先上传一张照片并完成照片点评。</h2>
               <button className="primary-link" type="button" onClick={onStartReview}>
                 前往开始点评
               </button>
@@ -2691,8 +2970,7 @@ function ReportPage({
           {displayedReport ? (
             <div className="diagnostic-report-shell">
               <aside className="report-side-nav" aria-label="报告章节导航">
-                <p className="panel-kicker">报告目录</p>
-                {reportNavItems.map((item) => (
+                {visibleReportNavItems.map((item) => (
                   <a
                     aria-current={activeReportSection === item.id ? 'location' : undefined}
                     className={activeReportSection === item.id ? 'is-active' : ''}
@@ -2707,7 +2985,7 @@ function ReportPage({
 
               <div className="diagnostic-report" data-report-export="true" ref={reportExportRef}>
                 <div className={`report-export-cover report-source-${displayedSource}`} aria-hidden="true" data-report-page-block="true">
-                  <p className="panel-kicker">PhotoSense AI · Photography review</p>
+                  <p className="panel-kicker">PhotoSense AI · 摄影复盘</p>
                   <h2>{activeRecord?.title || '分析报告'}</h2>
                   <p>{formatReportDate(displayedDate)} · {displayedMedium} · {displayedGenre} · {displayedSkillLevel}</p>
                   <div>
@@ -2715,24 +2993,20 @@ function ReportPage({
                     <span>{displayedSourceMessage}</span>
                   </div>
                 </div>
-                <section className="diagnostic-hero-report" id="report-overview" aria-label="照片诊断标注" data-report-page-block="true">
+                <section className={`diagnostic-hero-report is-${reportImageOrientation}-image`} id="report-overview" aria-label="照片诊断标注" data-report-page-block="true">
                 <article className="report-opening-summary">
                   {reportVerdict ? (
                     <section className="report-verdict-block" aria-label="评审结论">
-                      <p className="panel-kicker">评审结论</p>
                       <h2>{reportVerdict.title}</h2>
                       <div className="report-verdict-summary">
                         <span>一句话结论</span>
                         <p>{reportVerdict.summary}</p>
                       </div>
-                      <div className="report-verdict-notes">
+                      <div className="report-verdict-notes is-merged">
                         <div>
-                          <span>{reportIssueLabel}</span>
+                          <span>优化建议</span>
                           <p>{reportVerdict.mainIssue}</p>
-                        </div>
-                        <div>
-                          <span>本张先改</span>
-                          <p>{reportVerdict.nextStep}</p>
+                          <p>建议：{reportVerdict.nextStep}</p>
                         </div>
                       </div>
                     </section>
@@ -2743,9 +3017,6 @@ function ReportPage({
                         <span>综合评分</span>
                         <strong>{scoreSummary.overall}<small>/100</small></strong>
                       </div>
-                      <p className="report-score-context">
-                        基于{displayedMedium}、{displayedGenre}与{displayedSkillLevel}的学习参考
-                      </p>
                       <RadarChart scores={displayedReport.scores} improvementPriority={improvementPriority} />
                     </section>
                   ) : null}
@@ -2753,7 +3024,16 @@ function ReportPage({
 
                 <div className="diagnostic-photo-panel">
                   <div className="diagnostic-image-board">
-                    {displayedImageUrl ? <img src={displayedImageUrl} alt="用于诊断的已上传照片" /> : null}
+                    {displayedImageUrl ? (
+                      <img
+                        src={displayedImageUrl}
+                        alt="用于诊断的已上传照片"
+                        onLoad={(event) => {
+                          const image = event.currentTarget;
+                          setReportImageOrientation(image.naturalWidth > image.naturalHeight ? 'landscape' : 'portrait');
+                        }}
+                      />
+                    ) : null}
                   </div>
                   <div className="photo-meta-strip">
                     <span>{displayedFileName}</span>
@@ -2772,7 +3052,7 @@ function ReportPage({
 
                 {photoSpecific ? (
                   <section className="photo-specific-summary" aria-label="照片针对性观察" data-report-page-block="true">
-                    <SectionTitle icon="overall" eyebrow="画面观察" title="初步评价" />
+                    <SectionTitle icon="overall" title="画面观察" />
                     <div className="photo-specific-grid">
                       <article>
                         <span>值得保留</span>
@@ -2800,12 +3080,12 @@ function ReportPage({
                 ) : null}
 
                 <section className="dimension-diagnosis" id="report-dimensions" aria-label="五项摄影诊断维度" data-report-page-block="true">
-                <SectionTitle icon="technical" eyebrow="诊断维度" title="评分、结论与行动建议" />
+                <SectionTitle icon="technical" title="五维诊断" />
                 <div className="diagnosis-grid">
-                  <DiagnosticCard icon="composition" title="构图" score={displayedReport.scores['构图']} reason={scoreReasons?.['构图']} text={displayedReport.composition} priority={improvementPriority !== 'none' && scoreSummary?.weakest.name === '构图'} priorityLabel={improvementPriority === 'optional' ? '待优化' : undefined} />
-                  <DiagnosticCard icon="lighting" title="光线" score={displayedReport.scores['光线']} reason={scoreReasons?.['光线']} text={displayedReport.lighting} priority={improvementPriority !== 'none' && scoreSummary?.weakest.name === '光线'} priorityLabel={improvementPriority === 'optional' ? '待优化' : undefined} />
-                  <DiagnosticCard icon="colour" title="色彩" score={displayedReport.scores['色彩']} reason={scoreReasons?.['色彩']} text={displayedReport.colour} priority={improvementPriority !== 'none' && scoreSummary?.weakest.name === '色彩'} priorityLabel={improvementPriority === 'optional' ? '待优化' : undefined} />
-                  <DiagnosticCard icon="storytelling" title="叙事" score={displayedReport.scores['叙事']} reason={scoreReasons?.['叙事']} text={displayedReport.storytelling} priority={improvementPriority !== 'none' && scoreSummary?.weakest.name === '叙事'} priorityLabel={improvementPriority === 'optional' ? '待优化' : undefined} />
+                  <DiagnosticCard icon="composition" title="构图" score={displayedReport.scores['构图']} reason={scoreReasons?.['构图']} text={displayedReport.composition} priority={improvementPriority !== 'none' && scoreSummary?.weakest.name === '构图'} status={getDimensionStatus('构图')} />
+                  <DiagnosticCard icon="lighting" title="光线" score={displayedReport.scores['光线']} reason={scoreReasons?.['光线']} text={displayedReport.lighting} priority={improvementPriority !== 'none' && scoreSummary?.weakest.name === '光线'} status={getDimensionStatus('光线')} />
+                  <DiagnosticCard icon="colour" title="色彩" score={displayedReport.scores['色彩']} reason={scoreReasons?.['色彩']} text={displayedReport.colour} priority={improvementPriority !== 'none' && scoreSummary?.weakest.name === '色彩'} status={getDimensionStatus('色彩')} />
+                  <DiagnosticCard icon="storytelling" title="叙事" score={displayedReport.scores['叙事']} reason={scoreReasons?.['叙事']} text={displayedReport.storytelling} priority={improvementPriority !== 'none' && scoreSummary?.weakest.name === '叙事'} status={getDimensionStatus('叙事')} />
                   <DiagnosticCard
                     icon="technical"
                     title="技术完成度"
@@ -2813,46 +3093,32 @@ function ReportPage({
                     reason={scoreReasons?.['技术完成度']}
                     text={displayedReport.technical}
                     priority={improvementPriority !== 'none' && scoreSummary?.weakest.name === '技术完成度'}
-                    priorityLabel={improvementPriority === 'optional' ? '待优化' : undefined}
+                    status={getDimensionStatus('技术完成度')}
                   />
                 </div>
                 </section>
 
-                {postProcessing ? (
-                  <section className="post-processing-advice" id="report-post-processing" aria-label="后期建议" data-report-page-block="true">
-                  <SectionTitle icon="recipe" eyebrow="后期参考" title="后期建议" />
+                {postProcessing && displayedSource === 'ai' ? (
+                  <section className="post-processing-advice" id="report-post-processing" aria-label="优化建议" data-report-page-block="true">
+                  <SectionTitle icon="recipe" title="优化建议" />
                   <PostProcessingPreview
                     imageUrl={displayedImageUrl}
                     report={displayedReport}
                     medium={displayedMedium}
-                    skillLevel={displayedSkillLevel}
-                    enabled={displayedSource !== 'mock'}
+                    nextShooting={nextActions}
+                    persistedImageUrl={activeRecord?.optimizedImageUrl ?? ''}
+                    onOptimizedImageGenerated={activeRecord
+                      ? (optimizedImageUrl) => onSaveOptimizedImage(activeRecord.id, optimizedImageUrl)
+                      : undefined}
+                    enabled={Boolean(displayedImageUrl)}
                   />
-                  <div className="post-processing-grid">
-                    <PostAdviceCard index="01" title="裁剪建议" item={postProcessing.crop} priority />
-                    <PostAdviceCard index="02" title={displayedSkillLevel === '爱好者水平' ? '明暗调整建议' : '影调修改建议'} item={postProcessing.tone} />
-                    <PostAdviceCard index="03" title={displayedSkillLevel === '爱好者水平' ? '局部提亮 / 压暗建议' : '蒙版提亮 / 压暗建议'} item={postProcessing.masking} />
-                  </div>
                   </section>
                 ) : null}
 
-                {nextActions ? (
-                  <section className="next-shooting-actions" id="report-next-actions" data-report-page-block="true">
-                  <SectionTitle icon="suggestions" eyebrow="下次行动" title="下次拍摄优先尝试" />
-                  <p>{nextActions.summary}</p>
-                  <ul>
-                    {nextActions.items.map((item) => (
-                      <li key={item}>{item}</li>
-                    ))}
-                  </ul>
-                  </section>
-                ) : null}
-
-                <section className="review-context-section" id="report-context" aria-label="补充说明与评价设置" data-report-page-block="true">
-                  <SectionTitle icon="overall" eyebrow="评价依据" title="补充说明" />
-                  <div className="review-context-card" aria-label="本次评价设置">
+                <section className="review-context-section" id="report-context" aria-label="评审依据" data-report-page-block="true">
+                  <SectionTitle icon="overall" title="评审依据" />
+                  <div className="review-context-card" aria-label="评审依据明细">
                     <div className="review-context-head">
-                      <p className="panel-kicker">本次评价基准</p>
                       <span>{displayedMedium} / {displayedSkillLevel} / {displayedGenre}</span>
                     </div>
                     <dl>
@@ -2869,7 +3135,7 @@ function ReportPage({
                         <dd>{reviewContext.genreFocus}</dd>
                       </div>
                       <div>
-                        <dt>评分侧重</dt>
+                        <dt>评审依据</dt>
                         <dd>{reviewContext.scoringLogic}</dd>
                       </div>
                     </dl>
@@ -2891,10 +3157,8 @@ type HistoryPageProps = {
 };
 
 function HistoryPage({ historyRecords, onDeleteRecord, onOpenRecord, onStartReview }: HistoryPageProps) {
-  const [historyActionMode, setHistoryActionMode] = useState<'idle' | 'manage' | 'compare'>('idle');
+  const [isManaging, setIsManaging] = useState(false);
   const [isFiltersOpen, setIsFiltersOpen] = useState(false);
-  const [comparisonIds, setComparisonIds] = useState<string[]>([]);
-  const [isComparing, setIsComparing] = useState(false);
   const [activeMediumFilter, setActiveMediumFilter] = useState<Medium | '全部'>('全部');
   const [activeGenreFilter, setActiveGenreFilter] = useState<Genre | '全部'>('全部');
   const [startDate, setStartDate] = useState('');
@@ -2916,12 +3180,7 @@ function HistoryPage({ historyRecords, onDeleteRecord, onOpenRecord, onStartRevi
     query: historySearch,
     sort: historySort,
   });
-  const comparisonRecords = comparisonIds
-    .map((recordId) => historyRecords.find((record) => record.id === recordId))
-    .filter((record): record is HistoryRecord => Boolean(record));
   const hasActiveFilters = activeMediumFilter !== '全部' || activeGenreFilter !== '全部' || Boolean(startDate || endDate);
-  const isManaging = historyActionMode === 'manage';
-  const isSelectingComparison = historyActionMode === 'compare';
 
   function resetFilters() {
     setActiveMediumFilter('全部');
@@ -2935,53 +3194,16 @@ function HistoryPage({ historyRecords, onDeleteRecord, onOpenRecord, onStartRevi
 
     if (window.confirm('确定删除这条历史记录吗？')) {
       onDeleteRecord(record.id);
-      setComparisonIds((records) => records.filter((recordId) => recordId !== record.id));
-      setIsComparing(false);
     }
-  }
-
-  function handleToggleComparison(event: MouseEvent<HTMLButtonElement>, recordId: string) {
-    event.stopPropagation();
-    setIsComparing(false);
-    setComparisonIds((current) => {
-      if (current.includes(recordId)) return current.filter((id) => id !== recordId);
-      if (current.length >= 2) return current;
-      return [...current, recordId];
-    });
   }
 
   function handleToggleManaging() {
-    setHistoryActionMode(isManaging ? 'idle' : 'manage');
-    setComparisonIds([]);
-    setIsComparing(false);
-  }
-
-  function handleComparisonAction() {
-    if (!isSelectingComparison) {
-      setHistoryActionMode('compare');
-      setComparisonIds([]);
-      setIsComparing(false);
-      return;
-    }
-
-    if (isComparing) {
-      setHistoryActionMode('idle');
-      setComparisonIds([]);
-      setIsComparing(false);
-      return;
-    }
-
-    if (comparisonRecords.length === 2) {
-      setIsComparing(true);
-      return;
-    }
-
-    setHistoryActionMode('idle');
-    setComparisonIds([]);
+    setIsManaging((current) => !current);
   }
 
   return (
     <main className="history-page" id="main-content" tabIndex={-1}>
+      <SharedHomePhotoBackground page="history" />
       <header className="page-intro history-page-intro">
         <div className="history-intro-copy">
           <p className="panel-kicker">Contact archive</p>
@@ -2999,20 +3221,6 @@ function HistoryPage({ historyRecords, onDeleteRecord, onOpenRecord, onStartRevi
           >
             {isManaging ? '完成管理' : '管理记录'}
           </button>
-          <button
-            className={`history-compare-button ${isSelectingComparison ? 'is-active' : ''}`}
-            type="button"
-            aria-pressed={isSelectingComparison}
-            onClick={handleComparisonAction}
-          >
-            {!isSelectingComparison
-              ? '对比记录'
-              : isComparing
-                ? '结束对比'
-                : comparisonRecords.length === 2
-                  ? '查看对比（2/2）'
-                  : `取消对比（${comparisonRecords.length}/2）`}
-          </button>
         </div>
       </header>
       <section className="history-tools" aria-label="历史记录工具栏">
@@ -3027,7 +3235,7 @@ function HistoryPage({ historyRecords, onDeleteRecord, onOpenRecord, onStartRevi
           </div>
           <div>
             <strong>{averageScore || '--'}</strong>
-            <span>当前评分标准平均</span>
+            <span>平均得分</span>
           </div>
         </div>
 
@@ -3124,26 +3332,18 @@ function HistoryPage({ historyRecords, onDeleteRecord, onOpenRecord, onStartRevi
         </div>
       </section>
 
-      {historyActionMode !== 'idle' ? (
-        <div className={`history-action-status history-action-status-${historyActionMode}`} role="status">
-          <strong>{isManaging ? '管理记录' : '对比记录'}</strong>
-          <span>
-            {isManaging
-              ? '可以删除不再需要的记录；删除后不可恢复。'
-              : `请选择两份记录查看评分与练习方向变化，当前已选 ${comparisonRecords.length}/2。`}
-          </span>
+      {isManaging ? (
+        <div className="history-action-status history-action-status-manage" role="status">
+          <strong>管理记录</strong>
+          <span>可以删除不再需要的记录；删除后不可恢复。</span>
         </div>
-      ) : null}
-
-      {isComparing && comparisonRecords.length === 2 ? (
-        <HistoryComparison first={comparisonRecords[0]} second={comparisonRecords[1]} onClose={() => setIsComparing(false)} />
       ) : null}
 
       <section className="history-feed" data-count={Math.min(filteredRecords.length, 3)} aria-label="摄影点评历史内容流">
         {historyRecords.length === 0 ? (
           <div className="empty-report empty-report-state">
             <p className="eyebrow">暂无历史记录</p>
-            <h2>完成一次 AI 点评后，上传照片会自动出现在这里。</h2>
+            <h2>完成一次照片点评后，上传照片会自动出现在这里。</h2>
             <button className="primary-link" type="button" onClick={onStartReview}>开始第一次点评</button>
           </div>
         ) : null}
@@ -3161,44 +3361,17 @@ function HistoryPage({ historyRecords, onDeleteRecord, onOpenRecord, onStartRevi
           const subject = record.subject ?? record.genre;
           const critiqueLevel = record.critiqueLevel ?? record.skillLevel;
           const isNewestRecord = historyRecords[0]?.id === record.id;
-          const scoreVersion = getHistoryScoreVersion(record);
           const improvementPriority = getReportImprovementPriority(record.report);
 
           return (
             <article
-              className={`history-card history-uploaded ${historyRecords[0]?.id === record.id ? 'history-recent' : ''} ${comparisonIds.includes(record.id) ? 'is-comparison-selected' : ''}`}
+              className={`history-card history-uploaded ${historyRecords[0]?.id === record.id ? 'history-recent' : ''} ${isManaging ? 'is-managing' : ''}`}
               key={record.id}
               onClick={(event) => {
                 if ((event.target as HTMLElement).closest('button, a, input, select, textarea')) return;
                 onOpenRecord(record);
               }}
             >
-              {isManaging || isSelectingComparison ? (
-                <div className="history-card-manage-actions">
-                  {isSelectingComparison ? (
-                    <button
-                      className={`history-select-button ${comparisonIds.includes(record.id) ? 'is-selected' : ''}`}
-                      type="button"
-                      aria-pressed={comparisonIds.includes(record.id)}
-                      disabled={comparisonIds.length >= 2 && !comparisonIds.includes(record.id)}
-                      onClick={(event) => handleToggleComparison(event, record.id)}
-                      onKeyDown={(event) => event.stopPropagation()}
-                    >
-                      {comparisonIds.includes(record.id) ? '已选对比' : '选择对比'}
-                    </button>
-                  ) : null}
-                  {isManaging ? (
-                    <button
-                      className="history-delete-button"
-                      type="button"
-                      onClick={(event) => handleDeleteRecord(event, record)}
-                      onKeyDown={(event) => event.stopPropagation()}
-                    >
-                      删除
-                    </button>
-                  ) : null}
-                </div>
-              ) : null}
               <div className="history-thumb">
                 {record.imageUrl ? (
                   <img src={record.imageUrl} alt={`${title} 缩略图`} />
@@ -3208,8 +3381,20 @@ function HistoryPage({ historyRecords, onDeleteRecord, onOpenRecord, onStartRevi
                 {isNewestRecord ? <span className="history-new-label">NEW</span> : null}
                 {record.reportSource !== 'ai' ? (
                   <span className={`history-source-label history-source-${record.reportSource}`}>
-                    {record.reportSource === 'mock' ? '示例报告' : '来源未记录'}
+                    {record.reportSource === 'mock' ? '示例结果' : '来源未标注'}
                   </span>
+                ) : null}
+                {isManaging ? (
+                  <div className="history-card-manage-actions">
+                    <button
+                      className="history-delete-button"
+                      type="button"
+                      onClick={(event) => handleDeleteRecord(event, record)}
+                      onKeyDown={(event) => event.stopPropagation()}
+                    >
+                      删除
+                    </button>
+                  </div>
                 ) : null}
               </div>
               <div className="history-card-body">
@@ -3221,7 +3406,6 @@ function HistoryPage({ historyRecords, onDeleteRecord, onOpenRecord, onStartRevi
                       <span>{record.medium}</span>
                       <span>{critiqueLevel}</span>
                       <span>{subject}</span>
-                      <span>{scoreVersion === CURRENT_SCORE_VERSION ? '当前评分标准' : '旧评分标准'}</span>
                     </div>
                     <p className="history-card-summary">{record.summary || record.report.overall}</p>
                     <div className="history-priority-dimension">
@@ -3249,78 +3433,6 @@ function HistoryPage({ historyRecords, onDeleteRecord, onOpenRecord, onStartRevi
   );
 }
 
-function HistoryComparison({ first, second, onClose }: { first: HistoryRecord; second: HistoryRecord; onClose: () => void }) {
-  const comparison = compareHistoryRecords(first, second);
-  const formatDelta = (delta: number | null) => delta === null ? '—' : delta > 0 ? `+${delta}` : `${delta}`;
-
-  return (
-    <section className="history-comparison" aria-labelledby="history-comparison-title">
-      <div className="history-comparison-head">
-        <div>
-          <p className="panel-kicker">成长对比</p>
-          <h2 id="history-comparison-title">两次摄影点评的变化</h2>
-          <p>系统按记录时间自动区分较早作品和较新作品。</p>
-        </div>
-        <button type="button" onClick={onClose}>关闭对比</button>
-      </div>
-
-      <div className="comparison-photo-grid">
-        {[{ label: '较早作品', record: comparison.older, issue: comparison.olderIssue }, { label: '较新作品', record: comparison.newer, issue: comparison.newerIssue }].map(({ label, record, issue }) => (
-          <article key={record.id}>
-            <div className="comparison-photo">
-              {record.imageUrl ? <img src={record.imageUrl} alt={`${record.title} 对比缩略图`} /> : <span>暂无缩略图</span>}
-            </div>
-            <div className="comparison-photo-copy">
-              <span>{label}</span>
-              <h3>{record.title || '未命名作品'}</h3>
-              <p>{record.date} · {record.genre} · {record.skillLevel}</p>
-              <strong>{record.overallScore}<small>/100</small></strong>
-              <dl>
-                <dt>主要问题</dt>
-                <dd>{issue}</dd>
-              </dl>
-            </div>
-          </article>
-        ))}
-      </div>
-
-      {!comparison.isComparable ? <p className="comparison-version-note" role="status">{comparison.comparisonReason}</p> : null}
-
-      <div className="comparison-highlights">
-        <article>
-          <span>综合评分变化</span>
-          <strong className={comparison.totalDelta !== null && comparison.totalDelta > 0 ? 'is-positive' : comparison.totalDelta !== null && comparison.totalDelta < 0 ? 'is-negative' : ''}>
-            {formatDelta(comparison.totalDelta)}
-          </strong>
-        </article>
-        <article>
-          <span>{comparison.isComparable ? comparison.hasImprovement ? '提升最多维度' : '变化最大维度' : '分数对比'}</span>
-          <strong>{comparison.mostImproved ? `${comparison.mostImproved.name} ${formatDelta(comparison.mostImproved.delta)}` : '评分标准不同'}</strong>
-        </article>
-        <article>
-          <span>当前优先练习</span>
-          <strong>{comparison.practicePriority.name}</strong>
-          <p>{comparison.practiceAction}</p>
-        </article>
-      </div>
-
-      <div className="comparison-dimensions" aria-label="五项评分变化">
-        <div className="comparison-dimension-row comparison-dimension-head" aria-hidden="true">
-          <span>维度</span><span>较早</span><span>较新</span><span>变化</span>
-        </div>
-        {comparison.dimensions.map((item) => (
-          <div className="comparison-dimension-row" key={item.name}>
-            <strong>{item.name}</strong>
-            <span>{item.olderScore}</span>
-            <span>{item.newerScore}</span>
-            <em className={item.delta !== null && item.delta > 0 ? 'is-positive' : item.delta !== null && item.delta < 0 ? 'is-negative' : ''}>{formatDelta(item.delta)}</em>
-          </div>
-        ))}
-      </div>
-    </section>
-  );
-}
-
 function LoginPage({ onAuthSuccess, onSwitch }: { onAuthSuccess: () => void; onSwitch: () => void }) {
   return <AuthPage mode="login" onAuthSuccess={onAuthSuccess} onSwitch={onSwitch} />;
 }
@@ -3339,10 +3451,44 @@ function AuthPage({
   onSwitch: () => void;
 }) {
   const isLogin = mode === 'login';
+  const [isPanelVisible, setIsPanelVisible] = useState(true);
+  const panelId = `auth-panel-${mode}`;
+
+  const handleTogglePanel = () => {
+    const updateVisibility = () => flushSync(() => setIsPanelVisible((visible) => !visible));
+    const transitionDocument = document as Document & {
+      startViewTransition?: (update: () => void) => void;
+    };
+
+    if (transitionDocument.startViewTransition && !window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
+      transitionDocument.startViewTransition(updateVisibility);
+      return;
+    }
+
+    updateVisibility();
+  };
 
   return (
-    <main className="auth-page auth-page-clean">
-      <section className="auth-panel" aria-labelledby="auth-title">
+    <main className={`auth-page auth-page-clean${isPanelVisible ? '' : ' is-gallery-only'}`}>
+      <SharedHomePhotoBackground page={mode} isContentVisible={isPanelVisible} />
+      <div className="home-view-controls">
+        <button
+          type="button"
+          aria-controls={panelId}
+          aria-expanded={isPanelVisible}
+          aria-label={isPanelVisible ? `隐藏${isLogin ? '登录' : '注册'}内容` : `显示${isLogin ? '登录' : '注册'}内容`}
+          className={`home-content-toggle${isPanelVisible ? '' : ' is-intro-hidden'}`}
+          onClick={handleTogglePanel}
+          title={isPanelVisible ? `隐藏${isLogin ? '登录' : '注册'}内容` : `显示${isLogin ? '登录' : '注册'}内容`}
+        >
+          <svg viewBox="0 0 28 20" aria-hidden="true">
+            <path className="home-eye-outline" d="M1.8 10s4.4-7 12.2-7 12.2 7 12.2 7-4.4 7-12.2 7S1.8 10 1.8 10Z" />
+            <circle className="home-eye-pupil" cx="14" cy="10" r="3.4" />
+            {!isPanelVisible ? <path className="home-eye-slash" d="m4 2 20 16" /> : null}
+          </svg>
+        </button>
+      </div>
+      <section className="auth-panel" id={panelId} aria-labelledby="auth-title" hidden={!isPanelVisible}>
         <p className="eyebrow">{isLogin ? '登录' : '注册'}</p>
         <h1 id="auth-title">{isLogin ? '登录' : '注册'}</h1>
 
@@ -3396,7 +3542,7 @@ function SectionTitle({
   level = 'h2',
 }: {
   icon: IconName;
-  eyebrow: string;
+  eyebrow?: string;
   title: string;
   level?: 'h2' | 'h3';
 }) {
@@ -3406,7 +3552,7 @@ function SectionTitle({
     <div className="report-title-row">
       <IconMark name={icon} />
       <div>
-        <p className="panel-kicker">{eyebrow}</p>
+        {eyebrow ? <p className="panel-kicker">{eyebrow}</p> : null}
         <Heading>{title}</Heading>
       </div>
     </div>
@@ -3488,26 +3634,6 @@ function RadarChart({ scores, improvementPriority }: { scores: Record<ScoreName,
   );
 }
 
-function useResponsiveDisclosure(priority = false) {
-  const getIsCompact = () => typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia('(max-width: 760px)').matches;
-  const [isCompact, setIsCompact] = useState(getIsCompact);
-  const [isOpen, setIsOpen] = useState(() => !getIsCompact() || priority);
-
-  useEffect(() => {
-    if (typeof window.matchMedia !== 'function') return undefined;
-    const mediaQuery = window.matchMedia('(max-width: 760px)');
-    const handleChange = () => setIsCompact(mediaQuery.matches);
-    mediaQuery.addEventListener?.('change', handleChange);
-    return () => mediaQuery.removeEventListener?.('change', handleChange);
-  }, []);
-
-  useEffect(() => {
-    setIsOpen(!isCompact || priority);
-  }, [isCompact, priority]);
-
-  return [isOpen, setIsOpen] as const;
-}
-
 function DiagnosticCard({
   icon,
   title,
@@ -3515,7 +3641,7 @@ function DiagnosticCard({
   reason,
   text,
   priority = false,
-  priorityLabel,
+  status,
 }: {
   icon: IconName;
   title: string;
@@ -3523,64 +3649,47 @@ function DiagnosticCard({
   reason?: string;
   text: string;
   priority?: boolean;
-  priorityLabel?: string;
+  status?: '优势项' | '待优化';
 }) {
   const parts = parseDiagnosticText(text);
 
   return (
     <article className={`diagnostic-card ${priority ? 'is-priority' : ''}`}>
-      <div className="diagnostic-card-head">
-        <SectionTitle icon={icon} eyebrow={priority ? priorityLabel ?? '优先处理' : '诊断模块'} title={title} level="h3" />
-        <strong>{score}</strong>
-      </div>
-      <dl className="diagnostic-card-content">
-        {reason ? (
-          <div className="diagnostic-score-reason">
-            <dt>评分依据</dt>
-            <dd>{reason}</dd>
+      <details>
+        <summary>
+          <div className="diagnostic-card-head">
+            <SectionTitle icon={icon} title={title} level="h3" />
+            <div className="diagnostic-card-score-lockup">
+              <strong className="diagnostic-card-score">{score}</strong>
+              {status ? (
+                <em className={`diagnostic-card-score-status ${status === '优势项' ? 'is-strong' : 'is-weak'}`}>{status}</em>
+              ) : null}
+            </div>
           </div>
-        ) : null}
-        <div>
-          <dt>结论</dt>
-          <dd>{parts.conclusion}</dd>
-        </div>
-        <div>
-          <dt>原因</dt>
-          <dd>{parts.explanation}</dd>
-        </div>
-        <div>
-          <dt>本维度建议</dt>
-          <dd>{parts.action}</dd>
-        </div>
-      </dl>
+          <span className="diagnostic-card-disclosure" aria-hidden="true" />
+        </summary>
+        <dl className="diagnostic-card-content">
+          {reason ? (
+            <div className="diagnostic-score-reason">
+              <dt>评分依据</dt>
+              <dd>{reason}</dd>
+            </div>
+          ) : null}
+          <div>
+            <dt>结论</dt>
+            <dd>{parts.conclusion}</dd>
+          </div>
+          <div>
+            <dt>原因</dt>
+            <dd>{parts.explanation}</dd>
+          </div>
+          <div>
+            <dt>本维度建议</dt>
+            <dd>{parts.action}</dd>
+          </div>
+        </dl>
+      </details>
     </article>
-  );
-}
-
-function PostAdviceCard({ index, title, item, priority = false }: { index: string; title: string; item: PostProcessingAdviceItem; priority?: boolean }) {
-  const [isOpen, setIsOpen] = useResponsiveDisclosure(priority);
-
-  return (
-    <details className="post-advice-card" open={isOpen} onToggle={(event) => setIsOpen(event.currentTarget.open)}>
-      <summary className="post-advice-summary">
-        <span className="post-advice-index">{index}</span>
-        <h3>{title}</h3>
-      </summary>
-      <div className="post-advice-content">
-        <div className="advice-meta-row">
-          <span>建议</span>
-          <p>{item.suggestion}</p>
-        </div>
-        <div className="advice-meta-row">
-          <span>理由</span>
-          <p>{item.reason}</p>
-        </div>
-        <div className="advice-meta-row">
-          <span>预期效果</span>
-          <p>{item.expectedEffect}</p>
-        </div>
-      </div>
-    </details>
   );
 }
 

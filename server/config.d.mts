@@ -9,3 +9,5 @@ export function isHistoryExportEnabled(env: Record<string, string | undefined>):
 
 export function hasConfiguredProvider(env: Record<string, string | undefined>): boolean;
 
+export function hasConfiguredImageProvider(env: Record<string, string | undefined>): boolean;
+

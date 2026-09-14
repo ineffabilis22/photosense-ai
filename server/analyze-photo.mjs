@@ -2,12 +2,16 @@ import http from 'node:http';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { hasConfiguredProvider, isHistoryExportEnabled, readBoundedNumber } from './config.mjs';
+import { hasConfiguredImageProvider, hasConfiguredProvider, isHistoryExportEnabled, readBoundedNumber } from './config.mjs';
+import { generateOptimizedImage } from './image-optimizer.mjs';
 import { analyzeImageTone, normalizePreviewRecipe, renderPreviewImage } from './preview-renderer.mjs';
 
 const PORT = Number(process.env.PORT || 8787);
 const OPENAI_RELAY_BASE_URL = process.env.OPENAI_RELAY_BASE_URL?.trim().replace(/\/+$/, '');
-const OPENAI_RELAY_MODEL = process.env.OPENAI_RELAY_MODEL?.trim() || 'gpt-5.4';
+const configuredOpenAiRelayModel = process.env.OPENAI_RELAY_MODEL?.trim();
+const OPENAI_RELAY_MODEL = configuredOpenAiRelayModel === 'gpt-5.6'
+  ? 'gpt-5.6-luna'
+  : configuredOpenAiRelayModel || 'gpt-5.4';
 const DEFAULT_REPORT_TEMPERATURE = 0.2;
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
 const GEMINI_RELAY_BASE_URL = process.env.GEMINI_RELAY_BASE_URL?.trim().replace(/\/+$/, '');
@@ -36,6 +40,7 @@ const scoreBandValues = {
 const scoreBandNames = Object.keys(scoreBandValues);
 const NO_SIGNIFICANT_ISSUE = '未发现影响画面成立的明显问题。';
 const genreNames = ['街头摄影', '人像摄影', '风景摄影', '建筑摄影', '静物摄影', '旅行摄影'];
+const optimizationKinds = ['crop', 'tone', 'local-adjustment', 'cleanup', 'reframe', 'motion-effect', 'perspective', 'other'];
 const DEFAULT_SKILL_LEVEL = '爱好者水平';
 const EXPORTS_DIR = path.join(process.cwd(), 'exports');
 const HISTORY_EXPORT_PATH = path.join(EXPORTS_DIR, 'photosense_reports_history.json');
@@ -760,6 +765,40 @@ function normalizePostProcessing(value, fallback) {
   };
 }
 
+function createFallbackOptimizationPlan(postProcessing) {
+  return {
+    summary: '围绕画面重点进行克制调整。',
+    imagePrompt: postProcessing.crop.suggestion,
+    items: [
+      { kind: 'crop', instruction: postProcessing.crop.suggestion, target: '画面边缘', reason: postProcessing.crop.reason, expectedEffect: postProcessing.crop.expectedEffect },
+      { kind: 'tone', instruction: postProcessing.tone.suggestion, target: '画面明暗关系', reason: postProcessing.tone.reason, expectedEffect: postProcessing.tone.expectedEffect },
+      { kind: 'local-adjustment', instruction: postProcessing.masking.suggestion, target: '主体与背景', reason: postProcessing.masking.reason, expectedEffect: postProcessing.masking.expectedEffect },
+    ],
+  };
+}
+
+function normalizeOptimizationPlan(value, fallback) {
+  const items = Array.isArray(value?.items)
+    ? value.items
+      .filter((item) => item && typeof item === 'object')
+      .map((item) => ({
+        kind: optimizationKinds.includes(item.kind) ? item.kind : 'other',
+        instruction: sanitizeUserFacingText(item.instruction, ''),
+        target: sanitizeUserFacingText(item.target, ''),
+        reason: sanitizeUserFacingText(item.reason, ''),
+        expectedEffect: sanitizeUserFacingText(item.expectedEffect, ''),
+      }))
+      .filter((item) => item.instruction && item.reason && item.expectedEffect)
+      .slice(0, 5)
+    : [];
+
+  return {
+    summary: sanitizeUserFacingText(value?.summary, fallback.summary),
+    imagePrompt: sanitizeUserFacingText(value?.imagePrompt, fallback.imagePrompt),
+    items: items.length ? items : fallback.items,
+  };
+}
+
 function normalizeNextShooting(value, fallback) {
   const sourceItems = Array.isArray(value?.items) ? value.items : [];
   const items = fallback.items.map((fallbackItem, index) => sanitizeUserFacingText(sourceItems[index], fallbackItem));
@@ -971,6 +1010,11 @@ function normalizeReport(report, { genre, skillLevel, medium }) {
     temperature: normalizeText(sourceRecipe.temperature, fallback.recipe.temperature),
     cropRatio: normalizeText(sourceRecipe.cropRatio, fallback.recipe.cropRatio),
   };
+  const postProcessing = normalizePostProcessing(report?.postProcessing, fallback.postProcessing);
+  const optimizationPlan = normalizeOptimizationPlan(
+    report?.optimizationPlan,
+    fallback.optimizationPlan ?? createFallbackOptimizationPlan(postProcessing),
+  );
 
   const normalizedReport = {
     overall: normalizeText(report?.overall, fallback.overall),
@@ -988,7 +1032,8 @@ function normalizeReport(report, { genre, skillLevel, medium }) {
     previewAdjustments: normalizePreviewRecipe(report?.previewAdjustments, recipe),
     verdict: normalizeVerdict(report?.verdict, fallback.verdict),
     reviewContext: normalizeReviewContext(report?.reviewContext, fallback.reviewContext),
-    postProcessing: normalizePostProcessing(report?.postProcessing, fallback.postProcessing),
+    postProcessing,
+    optimizationPlan,
     nextShooting: normalizeNextShooting(report?.nextShooting, fallback.nextShooting),
     photoSpecific: normalizePhotoSpecific(report?.photoSpecific, fallback.photoSpecific),
     scoreReasons: normalizeScoreReasons(report?.scoreReasons, fallback.scoreReasons),
@@ -1042,20 +1087,25 @@ ${toneMeasurement}
 1. 只返回一个合法 JSON object。不要 Markdown，不要解释，不要代码围栏。第一个字符必须是 {，最后一个字符必须是 }。
 2. 所有字符串必须用双引号。不要尾随逗号。不要在字符串里写未转义换行。
 3. 文本要短。verdict.title 8-22 个汉字；summary 1-2 句；每个建议字段尽量不超过 45 个汉字。
-4. verdict、postProcessing、nextShooting 必须像给用户看的摄影点评，不要像系统说明。
-5. 这些词不得出现在 verdict、postProcessing、nextShooting 中：本次评分、评分侧重、评价基准、点评口径、按初学者口径、按进阶口径、按高级口径、按爱好者水平口径、按进阶水平口径、用户选择、AI、模型、建议优化后入选。
+4. verdict、optimizationPlan、postProcessing、nextShooting 必须像给用户看的摄影点评，不要像系统说明。
+5. 这些词不得出现在 verdict、optimizationPlan、postProcessing、nextShooting 中：本次评分、评分侧重、评价基准、点评口径、按初学者口径、按进阶口径、按高级口径、按爱好者水平口径、按进阶水平口径、用户选择、AI、模型、建议优化后入选。
 6. reviewContext 可以解释评价标准；但不要把 reviewContext 句子复制到 verdict.summary。
 7. 不要使用“xx摄影的画面基础成立，仍需按xx口径收紧判断”这类模板句。
 8. 不要编造相机参数、地名、精确坐标或框选区域。affectedArea 只描述“左侧边缘、人物轮廓附近、天空高光”等可见区域。
 9. photoSpecific 必须引用这张照片里真正可见的主体、背景、线条、亮点、颜色或空间关系；看不清时写“无法可靠判断”，不要猜测。
 10. scoreReasons 必须分别解释五项分数对应的视觉证据，不能只是重复分数等级，也不要在文案中复述具体数字。
-11. previewAdjustments 必须逐项使用上方“后端测量得到的全局参数”，不要复制固定示例，也不要自行换成另一组通用数值。预览固定保留完整画幅，crop 必须使用 original。
+11. previewAdjustments 必须逐项使用上方“后端测量得到的全局参数”，不要复制固定示例，也不要自行换成另一组通用数值。crop 默认使用 original；只有当照片中的主体关系明确支持裁切时，才可使用受支持的比例，并根据 photoSpecific.crop.direction 给出保留主体的方向。
 12. postProcessing.tone 的建议、理由和预期效果必须解释同一组参数：负高光表示回收高光，正阴影表示打开暗部，曝光正负方向不得与文字矛盾。
 13. 先根据照片可见内容独立判断最接近的题材，再对照用户选择；不得为了迎合用户选择而重复同一题材。混合或边界题材应降低 confidence。
 14. 所有面向用户的文字必须遵守上方“语言方式”；评价水平只控制语言深浅，不得直接影响模型给出的基础视觉分。
 15. 不要为了提供建议而虚构问题。只有能指出可见证据、所在区域和实际影响时，才把它写成需要修正的问题。
 16. 如果五项 scoreBands 全部是“作品级”或“强”，verdict.mainIssue 与 photoSpecific.priorityIssue 必须写“未发现影响画面成立的明显问题。”，affectedArea 写“不适用”；建议只能是保持当前处理或明确标成可选尝试。
 17. 如果最低等级是“成立”，只能提出不影响照片成立的可选优化，不能把个人偏好描述成缺陷。高完成度维度可以只写值得保留的证据，方向可以写“保持当前处理”。
+18. optimizationPlan.items 必须根据照片实际问题灵活选择，通常给出 2-4 条，最多 5 条；照片高度完整且没有第二项可靠依据时可以只给 1 条，不得为了数量虚构问题。不能固定凑成裁剪、影调、局部调整三项。
+19. 优先从照片内容真正需要的动作中组合不同类型，例如裁剪多余区域、调整主体位置与构图关系、清理具体背景干扰、整理透视、控制特定区域的明暗或色彩、修正轻微倾斜；只有瀑布、车流等明确适合的场景才提出长曝光效果。每条必须指出具体对象或可见区域、调整程度及预期变化，避免重复表达同一问题。
+20. optimizationPlan 的每条内容必须和照片中的可见证据对应；不得添加原图不存在的人物、物体、文字或标志。imagePrompt 要求图片编辑模型保留人物身份、主体内容、原有摄影质感和未提及区域。
+21. nextShooting 每条建议也要具体到可见主体、位置、角度、距离、姿态、遮挡关系或拍摄时机，并写成能在同一现场执行、能在照片中看到结果的动作。第一条优先选择最适合在预览图中直观呈现的动作，例如改变主体位置或姿态、重新取景、避开具体遮挡、调整拍摄角度或等待更完整的动作瞬间；不能只写“多观察”“注意构图”等抽象提醒。
+22. optimizationPlan.imagePrompt 必须明确写出如何把 nextShooting 的第一条可行建议转化为同一现场的可见变化，并要求图片编辑模型至少落实一项构图、主体位置、姿态、遮挡、角度、透视或拍摄瞬间变化，不能只产生影调差异。允许对建议直接涉及的区域进行局部重绘或重新取景，但不得改成另一个地点、天气、时段或故事。
 
 评分规则：
 - scoreBands 必须包含五项等级；genreAssessment 必须包含 detectedGenre、confidence 和 reason。不要输出 scores，数值由服务器统一映射。
@@ -1076,10 +1126,11 @@ ${toneMeasurement}
 - 静物摄影：物件关系、材质、阴影、背景、留白。
 - 旅行摄影：地方感、人的痕迹、叙事上下文、记录与作品性的平衡。
 
-后期建议：
+优化建议：
 - 必须结合可见画面和用户选择，不要泛泛而谈。
 - 如果当前照片在该口径下已经不错，可以写“基本保持当前裁切”“不建议大幅改变影调”“仅做轻微局部整理”“当前处理已基本足够”。
 - 胶片摄影要尊重颗粒、色偏、冲扫质感；数码摄影可讨论高光、白平衡、锐度、噪点、局部对比。
+- 不需要在图片上画批注。建议描述最终要产生的视觉变化和理由。
 
 下次拍摄建议：
 - 必须引用可见场景信息，例如背景、天气/天空、光线、主体位置、人物姿态、建筑结构、前中后景、拍摄距离或角度。
@@ -1135,6 +1186,13 @@ ${toneMeasurement}
     "crop": {"suggestion": "裁剪建议", "reason": "理由", "expectedEffect": "预期效果"},
     "tone": {"suggestion": "影调建议", "reason": "理由", "expectedEffect": "预期效果"},
     "masking": {"suggestion": "蒙版建议", "reason": "理由", "expectedEffect": "预期效果"}
+  },
+  "optimizationPlan": {
+    "summary": "本次图片优化的整体方向",
+    "imagePrompt": "供图片编辑模型执行的保真编辑说明",
+    "items": [
+      {"kind": "crop|tone|local-adjustment|cleanup|reframe|motion-effect|perspective|other", "instruction": "具体修改内容", "target": "对应的可见区域或主体关系", "reason": "为什么要修改", "expectedEffect": "修改后的视觉变化"}
+    ]
   },
   "nextShooting": {"summary": "下次拍摄总建议", "items": ["行动1", "行动2", "行动3"]}
 }
@@ -1288,14 +1346,14 @@ function createJsonRepairPrompt({ brokenText, medium, genre, skillLevel }) {
 - 不要尾随逗号。
 - 如果某个字段缺失或残缺，请用简短中文补全。
 - scoreBands 必须包含构图、光线、色彩、叙事、技术完成度，每项只能是“作品级、强、成立、普通、偏弱、严重问题”之一。
-- 不要在 verdict、postProcessing、nextShooting 中写“本次评分、评分侧重、评价基准、点评口径、按初学者口径、按进阶口径、按高级口径、按爱好者水平口径、按进阶水平口径、用户选择、AI、模型、建议优化后入选”。
+- 不要在 verdict、optimizationPlan、postProcessing、nextShooting 中写“本次评分、评分侧重、评价基准、点评口径、按初学者口径、按进阶口径、按高级口径、按爱好者水平口径、按进阶水平口径、用户选择、AI、模型、建议优化后入选”。
 
 当前上下文：
 - 影像介质：${medium}
 - 摄影题材：${genre}
 - 评价水平：${skillLevel}
 
-必须输出这些顶层字段：overall, verdict, reviewContext, genreAssessment, scoreBands, scoreReasons, photoSpecific, composition, lighting, colour, storytelling, technical, suggestions, previewAdjustments, postProcessing, nextShooting。recipe 可省略。
+必须输出这些顶层字段：overall, verdict, reviewContext, genreAssessment, scoreBands, scoreReasons, photoSpecific, composition, lighting, colour, storytelling, technical, suggestions, previewAdjustments, optimizationPlan, nextShooting。postProcessing 和 recipe 可省略。
 
 损坏文本如下：
 ${safeBrokenText}`;
@@ -1704,6 +1762,7 @@ const server = http.createServer(async (request, response) => {
       ok: true,
       app: 'PhotoSense AI',
       providerConfigured: hasConfiguredProvider(process.env),
+      imageProviderConfigured: hasConfiguredImageProvider(process.env),
       historyExportEnabled: HISTORY_EXPORT_ENABLED,
       previewRenderer: 'sharp',
       timestamp: new Date().toISOString(),
@@ -1753,9 +1812,13 @@ const server = http.createServer(async (request, response) => {
       const toneProfile = await analyzeImageTone(body?.imageDataUrl, {
         medium: body?.medium === '胶片摄影' ? '胶片摄影' : '数码摄影',
       });
+      const requestedRecipe = normalizePreviewRecipe(body?.recipe, body?.legacyRecipe);
       const preview = await renderPreviewWithTimeout({
         imageDataUrl: body?.imageDataUrl,
-        recipe: toneProfile.adjustments,
+        recipe: {
+          ...toneProfile.adjustments,
+          crop: requestedRecipe.crop,
+        },
       });
       sendJson(response, 200, { ok: true, preview, toneProfile });
     } catch (error) {
@@ -1763,6 +1826,26 @@ const server = http.createServer(async (request, response) => {
       sendJson(response, error.statusCode || 500, {
         ok: false,
         error: error.message || '生成后期预览失败。',
+      });
+    }
+    return;
+  }
+
+  if (requestUrl.pathname === '/api/generate-optimized-image') {
+    try {
+      const body = await readJsonBody(request);
+      const result = await generateOptimizedImage({
+        imageDataUrl: body?.imageDataUrl,
+        medium: body?.medium === '胶片摄影' ? '胶片摄影' : '数码摄影',
+        optimizationPlan: body?.optimizationPlan,
+        nextShooting: body?.nextShooting,
+      });
+      sendJson(response, 200, { ok: true, ...result });
+    } catch (error) {
+      console.error('[PhotoSense AI] optimized image generation failed:', error?.message || error);
+      sendJson(response, error.statusCode || 500, {
+        ok: false,
+        error: error.message || '优化图片暂时无法生成。',
       });
     }
     return;
@@ -1801,4 +1884,5 @@ const server = http.createServer(async (request, response) => {
 server.listen(PORT, () => {
   console.log(`PhotoSense AI local API running at http://localhost:${PORT}/api/analyze-photo`);
   console.log(`PhotoSense AI preview renderer running at http://localhost:${PORT}/api/render-preview`);
+  console.log(`PhotoSense AI optimized image API running at http://localhost:${PORT}/api/generate-optimized-image`);
 });

@@ -17,5 +17,5 @@ Build Command: npm ci --include=dev && npm run build
 Start Command: npm start
 ```
 
-部署完成后访问 `/api/health`，确认 `ok` 和 `providerConfigured` 均为 `true`。
+部署完成后访问 `/api/health`，确认 `ok`、`providerConfigured` 和 `imageProviderConfigured` 均为 `true`。图片编辑模型的 `IMAGE_RELAY_*` 变量需要同时配置在 Render Environment 中，真实密钥不要提交到 GitHub。
 

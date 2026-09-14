@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { hasConfiguredProvider, isHistoryExportEnabled, readBoundedNumber } from '../server/config.mjs';
+import { hasConfiguredImageProvider, hasConfiguredProvider, isHistoryExportEnabled, readBoundedNumber } from '../server/config.mjs';
 
 test('数值环境变量支持默认值、边界和整数化', () => {
   assert.equal(readBoundedNumber({}, 'TIMEOUT', 60_000, { min: 5_000, max: 180_000, integer: true }), 60_000);
@@ -14,7 +14,9 @@ test('生产环境默认禁用历史文件写入', () => {
   assert.equal(isHistoryExportEnabled({ NODE_ENV: 'development' }), true);
 });
 
-test('健康检查只暴露 provider 是否已配置', () => {
+test('健康检查只暴露供应商是否已配置', () => {
   assert.equal(hasConfiguredProvider({}), false);
   assert.equal(hasConfiguredProvider({ OPENAI_RELAY_BASE_URL: 'https://example.com/v1', OPENAI_RELAY_API_KEY: 'secret' }), true);
+  assert.equal(hasConfiguredImageProvider({}), false);
+  assert.equal(hasConfiguredImageProvider({ IMAGE_RELAY_BASE_URL: 'https://example.com/v1', IMAGE_RELAY_API_KEY: 'secret', IMAGE_RELAY_MODEL: 'image-model' }), true);
 });

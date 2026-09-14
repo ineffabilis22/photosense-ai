@@ -60,8 +60,30 @@ export function normalizePreviewAdjustments(value: unknown, legacyRecipe?: Repor
   };
 }
 
+function inferCropAnchor(direction: unknown) {
+  const text = typeof direction === 'string' ? direction : '';
+  return {
+    anchorX: /左侧|左边|左方/.test(text) ? 1 : /右侧|右边|右方/.test(text) ? 0 : 0.5,
+    anchorY: /顶部|上方|上侧/.test(text) ? 1 : /底部|下方|下侧/.test(text) ? 0 : 0.5,
+  };
+}
+
 export function getReportPreviewAdjustments(report: Report) {
-  return normalizePreviewAdjustments(report.previewAdjustments, report.recipe);
+  const adjustments = normalizePreviewAdjustments(report.previewAdjustments, report.recipe);
+  const reportCrop = report.photoSpecific?.crop;
+  if (adjustments.crop.ratio !== 'original' || !reportCrop) return adjustments;
+
+  const ratio = normalizeCropRatio(reportCrop.ratio);
+  if (ratio === 'original') return adjustments;
+
+  return {
+    ...adjustments,
+    crop: {
+      ...adjustments.crop,
+      ratio,
+      ...inferCropAnchor(reportCrop.direction),
+    },
+  };
 }
 
 function loadImage(source: string) {
@@ -116,20 +138,56 @@ export type RenderedPreview = {
   adjustments: PreviewAdjustments;
 };
 
-export async function renderPreview(source: string, value: unknown, legacyRecipe?: Report['recipe']): Promise<RenderedPreview> {
+function parseRatio(value: string) {
+  const [width, height] = value.split(':').map(Number);
+  return width > 0 && height > 0 ? width / height : 0;
+}
+
+function getCropFrame(width: number, height: number, ratio: string, anchorX = 0.5, anchorY = 0.5) {
+  const targetRatio = parseRatio(ratio);
+  if (!targetRatio) return null;
+
+  let frameWidth = width;
+  let frameHeight = height;
+  if (width / height > targetRatio) {
+    frameWidth = height * targetRatio;
+  } else {
+    frameHeight = width / targetRatio;
+  }
+
+  return {
+    left: (width - frameWidth) * Math.max(0, Math.min(1, anchorX)),
+    top: (height - frameHeight) * Math.max(0, Math.min(1, anchorY)),
+    width: frameWidth,
+    height: frameHeight,
+  };
+}
+
+export async function renderPreview(
+  source: string,
+  value: unknown,
+  legacyRecipe?: Report['recipe'],
+): Promise<RenderedPreview> {
   const adjustments = normalizePreviewAdjustments(value, legacyRecipe);
   const image = await loadImage(source);
   const maxEdge = 1200;
-  const outputScale = Math.min(1, maxEdge / Math.max(image.naturalWidth, image.naturalHeight));
-  const width = Math.max(1, Math.round(image.naturalWidth * outputScale));
-  const height = Math.max(1, Math.round(image.naturalHeight * outputScale));
+  const cropFrame = adjustments.crop.ratio === 'original'
+    ? null
+    : getCropFrame(image.naturalWidth, image.naturalHeight, adjustments.crop.ratio, adjustments.crop.anchorX, adjustments.crop.anchorY);
+  const sourceX = cropFrame?.left ?? 0;
+  const sourceY = cropFrame?.top ?? 0;
+  const sourceWidth = cropFrame?.width ?? image.naturalWidth;
+  const sourceHeight = cropFrame?.height ?? image.naturalHeight;
+  const outputScale = Math.min(1, maxEdge / Math.max(sourceWidth, sourceHeight));
+  const width = Math.max(1, Math.round(sourceWidth * outputScale));
+  const height = Math.max(1, Math.round(sourceHeight * outputScale));
   const canvas = document.createElement('canvas');
   const context = canvas.getContext('2d', { willReadFrequently: true });
   if (!context) throw new Error('当前浏览器不支持后期预览。');
 
   canvas.width = width;
   canvas.height = height;
-  context.drawImage(image, 0, 0, image.naturalWidth, image.naturalHeight, 0, 0, width, height);
+  context.drawImage(image, sourceX, sourceY, sourceWidth, sourceHeight, 0, 0, width, height);
   const imageData = context.getImageData(0, 0, width, height);
   applyPixelAdjustments(imageData.data, adjustments);
   context.putImageData(imageData, 0, 0);

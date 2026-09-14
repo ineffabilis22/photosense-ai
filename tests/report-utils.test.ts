@@ -47,6 +47,13 @@ test('保留有效的模型分数、结论和后期建议', () => {
       tone: { suggestion: '压低路面高光。', reason: '保留夜景层次。', expectedEffect: '视线更集中。' },
       masking: { suggestion: '轻提人物面部。', reason: '动作是叙事核心。', expectedEffect: '人物关系更清楚。' },
     },
+    optimizationPlan: {
+      summary: '清理边缘干扰。',
+      imagePrompt: '保留红伞人物身份和雨夜质感。',
+      items: [
+        { kind: 'cleanup', instruction: '移除右侧车灯。', target: '画面右侧边缘', reason: '亮点与红伞竞争。', expectedEffect: '红伞更快被看见。' },
+      ],
+    },
     photoSpecific: {
       strength: '红伞与深色街景形成明确对比。',
       priorityIssue: '右侧车灯抢走红伞的注意力。',
@@ -67,6 +74,9 @@ test('保留有效的模型分数、结论和后期建议', () => {
   assert.equal(report.postProcessing?.crop.suggestion, '仅裁去右边车灯。');
   assert.equal(report.postProcessing?.tone.suggestion, '压低路面高光。');
   assert.equal(report.postProcessing?.masking.suggestion, '轻提人物面部。');
+  assert.equal(report.optimizationPlan?.items.length, 1);
+  assert.equal(report.optimizationPlan?.items[0].kind, 'cleanup');
+  assert.equal(report.optimizationPlan?.items[0].instruction, '移除右侧车灯。');
   assert.equal(report.photoSpecific?.affectedArea, '画面右侧边缘');
   assert.equal(report.photoSpecific?.crop.direction, '从右侧收紧');
   assert.equal(report.scoreReasons?.构图, '主体清楚，但右侧视觉重量偏高。');
@@ -92,4 +102,24 @@ test('字段缺失或包含内部元语言时才使用 fallback', () => {
   assert.equal(report.photoSpecific?.strength, '默认优点');
   assert.equal(report.scoreReasons?.叙事, '默认叙事依据');
   assert.equal(report.genreAssessment, undefined);
+});
+
+test('优化建议保留照片特定的多样动作并限制为最多五项', () => {
+  const kinds = ['cleanup', 'reframe', 'tone', 'local-adjustment', 'perspective', 'crop'] as const;
+  const report = mergeAiReportWithFallback({
+    optimizationPlan: {
+      summary: '围绕可见干扰和主体关系进行调整。',
+      imagePrompt: '保持未提及区域不变。',
+      items: kinds.map((kind, index) => ({
+        kind,
+        instruction: `修改画面区域 ${index + 1}。`,
+        target: `可见区域 ${index + 1}`,
+        reason: `区域 ${index + 1} 存在明确影响。`,
+        expectedEffect: `改善区域 ${index + 1} 的观看关系。`,
+      })),
+    },
+  }, fallback, context);
+
+  assert.equal(report.optimizationPlan?.items.length, 5);
+  assert.deepEqual(report.optimizationPlan?.items.map((item) => item.kind), kinds.slice(0, 5));
 });

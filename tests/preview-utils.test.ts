@@ -69,7 +69,7 @@ test('clamps untrusted preview values in browser and server normalizers', () => 
   assert.deepEqual(normalizePreviewRecipe(candidate), expected);
 });
 
-test('Sharp renderer keeps the complete image even when the recipe requests a square crop', async () => {
+test('Sharp renderer applies a requested square crop before tone adjustments', async () => {
   const input = await sharp({
     create: { width: 8, height: 4, channels: 3, background: { r: 92, g: 110, b: 134 } },
   }).png().toBuffer();
@@ -83,10 +83,10 @@ test('Sharp renderer keeps the complete image even when the recipe requests a sq
   });
 
   assert.equal(result.mimeType, 'image/webp');
-  assert.equal(result.width, 8);
+  assert.equal(result.width, 4);
   assert.equal(result.height, 4);
-  assert.equal(result.width / result.height, 2);
-  assert.equal(result.appliedRecipe.crop.ratio, 'original');
+  assert.equal(result.width / result.height, 1);
+  assert.equal(result.appliedRecipe.crop.ratio, '1:1');
   assert.match(result.imageDataUrl, /^data:image\/webp;base64,/);
 });
 

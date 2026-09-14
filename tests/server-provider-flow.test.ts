@@ -43,6 +43,7 @@ async function stopChild(child: ReturnType<typeof spawn>) {
 
 test('OpenAI-compatible 完整链路传递新提示词并返回照片针对性报告', { timeout: 15_000 }, async () => {
   const providerRequests: Array<Record<string, any>> = [];
+  const imageProviderRequests: Array<{ body: string; authorization?: string }> = [];
   const providerReport = {
     overall: '红伞人物是明确主体，湿润路面提供夜景层次。',
     scoreBands: { 构图: '作品级', 光线: '强', 色彩: '成立', 叙事: '普通', 技术完成度: '严重问题' },
@@ -83,9 +84,34 @@ test('OpenAI-compatible 完整链路传递新提示词并返回照片针对性�
       tone: { suggestion: '压低路面高光。', reason: '保持夜景层次。', expectedEffect: '明暗更稳定。' },
       masking: { suggestion: '轻提人物面部。', reason: '人物是叙事核心。', expectedEffect: '动作更可读。' },
     },
+    optimizationPlan: {
+      summary: '清理右侧干扰，并让红伞人物更集中。',
+      imagePrompt: '保留雨夜街道质感和红伞人物身份，只整理右侧车灯。',
+      items: [
+        { kind: 'cleanup', instruction: '移除右侧边缘分散注意力的车灯。', target: '画面右侧边缘', reason: '车灯亮度高于主体。', expectedEffect: '视线更快回到红伞人物。' },
+        { kind: 'reframe', instruction: '轻微收紧右侧画面。', target: '人物与右侧边缘', reason: '人物目前略偏离视觉重心。', expectedEffect: '人物与街景关系更集中。' },
+        { kind: 'tone', instruction: '轻微压低湿润路面的局部亮部。', target: '人物脚下至右下角路面', reason: '反光亮度接近红伞。', expectedEffect: '保留夜景层次并减少视线偏移。' },
+        { kind: 'local-adjustment', instruction: '小幅提升红伞边缘与人物上身的明暗区分。', target: '红伞及人物上身', reason: '深色衣着与背景局部重叠。', expectedEffect: '人物轮廓更清楚但仍保持夜景质感。' },
+        { kind: 'perspective', instruction: '轻微校正右侧建筑竖线。', target: '画面右侧建筑边缘', reason: '竖线向内倾斜形成不必要的压迫感。', expectedEffect: '街景结构更稳定。' },
+      ],
+    },
     nextShooting: { summary: '继续观察人物与灯光关系。', items: ['等待动作更完整。', '避开边缘车灯。', '保持低机位。'] },
   };
   const provider = http.createServer((request, response) => {
+    if (request.url === '/v1/images/edits') {
+      const chunks: Buffer[] = [];
+      request.on('data', (chunk) => { chunks.push(Buffer.from(chunk)); });
+      request.on('end', () => {
+        imageProviderRequests.push({
+          body: Buffer.concat(chunks).toString('utf8'),
+          authorization: request.headers.authorization,
+        });
+        response.writeHead(200, { 'Content-Type': 'application/json' });
+        response.end(JSON.stringify({ data: [{ b64_json: imageDataUrl.split(',')[1] }] }));
+      });
+      return;
+    }
+
     let body = '';
     request.setEncoding('utf8');
     request.on('data', (chunk) => { body += chunk; });
@@ -141,6 +167,9 @@ test('OpenAI-compatible 完整链路传递新提示词并返回照片针对性�
       OPENAI_RELAY_BASE_URL: `http://127.0.0.1:${providerPort}/v1`,
       OPENAI_RELAY_API_KEY: 'test-key',
       OPENAI_RELAY_MODEL: 'test-vision-model',
+      IMAGE_RELAY_BASE_URL: `http://127.0.0.1:${providerPort}`,
+      IMAGE_RELAY_API_KEY: 'test-image-key',
+      IMAGE_RELAY_MODEL: 'gpt-image-2',
       GEMINI_RELAY_BASE_URL: '',
       GEMINI_RELAY_API_KEY: '',
       ANTHROPIC_RELAY_BASE_URL: '',
@@ -154,6 +183,9 @@ test('OpenAI-compatible 完整链路传递新提示词并返回照片针对性�
 
   try {
     await waitForHealth(() => `${stdout}\n${stderr}`);
+    const healthResponse = await fetch(`http://127.0.0.1:${appPort}/api/health`);
+    const health = await healthResponse.json();
+    assert.equal(health.imageProviderConfigured, true);
     async function requestReport(skillLevel: '爱好者水平' | '进阶水平', genre = '人像摄影') {
       const response = await fetch(`http://127.0.0.1:${appPort}/api/analyze-photo`, {
         method: 'POST',
@@ -214,6 +246,11 @@ test('OpenAI-compatible 完整链路传递新提示词并返回照片针对性�
     assert.match(prompt, /"scoreReasons"/);
     assert.match(prompt, /"scoreBands"/);
     assert.match(prompt, /"genreAssessment"/);
+    assert.match(prompt, /"optimizationPlan"/);
+    assert.match(prompt, /不能固定凑成裁剪、影调、局部调整三项/);
+    assert.match(prompt, /通常给出 2-4 条，最多 5 条/);
+    assert.match(prompt, /第一条优先选择最适合在预览图中直观呈现的动作/);
+    assert.match(prompt, /不能只产生影调差异/);
     assert.match(prompt, /独立判断最接近的题材/);
     assert.doesNotMatch(prompt, /分数居中/);
     assert.doesNotMatch(prompt, /"构图": 78/);
@@ -227,6 +264,40 @@ test('OpenAI-compatible 完整链路传递新提示词并返回照片针对性�
     assert.match(hobbyistPrompt, /不直接使用高光、阴影/);
     assert.match(hobbyistPrompt, /基础视觉分/);
     assert.equal(image, imageDataUrl);
+
+    const optimizedResponse = await fetch(`http://127.0.0.1:${appPort}/api/generate-optimized-image`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        imageDataUrl,
+        medium: '数码摄影',
+        optimizationPlan: data.report.optimizationPlan,
+        nextShooting: data.report.nextShooting,
+      }),
+    });
+    const optimized = await optimizedResponse.json();
+    assert.equal(optimizedResponse.status, 200, `${stdout}\n${stderr}`);
+    assert.equal(optimized.ok, true);
+    assert.match(optimized.imageUrl, /^data:image\/png;base64,/);
+    assert.equal(imageProviderRequests.length, 1);
+    assert.equal(imageProviderRequests[0].authorization, 'Bearer test-image-key');
+    assert.match(imageProviderRequests[0].body, /name="model"/);
+    assert.match(imageProviderRequests[0].body, /gpt-image-2/);
+    assert.match(imageProviderRequests[0].body, /name="image\[\]"; filename="photosense-source.png"/);
+    assert.match(imageProviderRequests[0].body, /不要添加图上批注/);
+    assert.match(imageProviderRequests[0].body, /严格保持仍出现在画面中的招牌、文字、数字、车牌与标志/);
+    assert.match(imageProviderRequests[0].body, /移除右侧边缘分散注意力的车灯/);
+    assert.match(imageProviderRequests[0].body, /轻微校正右侧建筑竖线/);
+    assert.match(imageProviderRequests[0].body, /同一现场按建议再拍一次后的更优拍摄结果/);
+    assert.match(imageProviderRequests[0].body, /必须执行的主要动作：等待动作更完整/);
+    assert.match(imageProviderRequests[0].body, /可选的辅助动作[\s\S]*保持低机位/);
+    assert.match(imageProviderRequests[0].body, /拍摄动作的优先级高于普通影调优化/);
+    assert.match(imageProviderRequests[0].body, /必须把主要动作落实为一眼可辨认的空间、构图或拍摄瞬间变化/);
+    assert.match(imageProviderRequests[0].body, /不得只调整曝光、对比度、明暗或色彩/);
+    assert.match(imageProviderRequests[0].body, /等待动作更完整.*重绘为紧邻且可信的更完整动作瞬间/);
+    assert.match(imageProviderRequests[0].body, /提高或降低机位.*透视关系出现可见变化/);
+    assert.match(imageProviderRequests[0].body, /如果修改前后并排时只能看出影调差别.*结果不合格/);
+    assert.match(imageProviderRequests[0].body, /这些保留要求不能抵消建议明确要求的主体移动、姿态变化、重新取景、遮挡清理或透视调整/);
   } finally {
     await stopChild(child);
     await close(provider);

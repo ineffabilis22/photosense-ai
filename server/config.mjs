@@ -25,3 +25,7 @@ export function hasConfiguredProvider(env) {
       || env.GEMINI_API_KEY,
   );
 }
+
+export function hasConfiguredImageProvider(env) {
+  return Boolean(env.IMAGE_RELAY_BASE_URL && env.IMAGE_RELAY_API_KEY && env.IMAGE_RELAY_MODEL);
+}

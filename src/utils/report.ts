@@ -1,10 +1,11 @@
-import type { Genre, GenreAssessment, ImprovementPriority, PostProcessingAdviceItem, Report, ReviewContext, ScoreBand, ScoreName } from '../types/report';
+import type { Genre, GenreAssessment, ImprovementPriority, OptimizationKind, OptimizationPlan, PostProcessingAdviceItem, Report, ReviewContext, ScoreBand, ScoreName } from '../types/report';
 import { normalizePreviewAdjustments } from './preview';
 
 const scoreNames: ScoreName[] = ['构图', '光线', '色彩', '叙事', '技术完成度'];
 const scoreBandNames: ScoreBand[] = ['作品级', '强', '成立', '普通', '偏弱', '严重问题'];
 const improvementPriorities: ImprovementPriority[] = ['none', 'optional', 'material', 'critical'];
 const genres: Genre[] = ['街头摄影', '人像摄影', '风景摄影', '建筑摄影', '静物摄影', '旅行摄影'];
+const optimizationKinds: OptimizationKind[] = ['crop', 'tone', 'local-adjustment', 'cleanup', 'reframe', 'motion-effect', 'perspective', 'other'];
 const internalMetaPhrases = [
   '本次评分',
   '评分侧重',
@@ -68,6 +69,40 @@ function normalizeAdvice(value: unknown, fallback: PostProcessingAdviceItem) {
   };
 }
 
+function createFallbackOptimizationPlan(postProcessing: NonNullable<Report['postProcessing']>): OptimizationPlan {
+  return {
+    summary: '围绕画面重点进行克制调整。',
+    imagePrompt: postProcessing.crop.suggestion,
+    items: [
+      { kind: 'crop', instruction: postProcessing.crop.suggestion, target: '画面边缘', reason: postProcessing.crop.reason, expectedEffect: postProcessing.crop.expectedEffect },
+      { kind: 'tone', instruction: postProcessing.tone.suggestion, target: '画面明暗关系', reason: postProcessing.tone.reason, expectedEffect: postProcessing.tone.expectedEffect },
+      { kind: 'local-adjustment', instruction: postProcessing.masking.suggestion, target: '主体与背景', reason: postProcessing.masking.reason, expectedEffect: postProcessing.masking.expectedEffect },
+    ],
+  };
+}
+
+function normalizeOptimizationPlan(value: unknown, fallback: OptimizationPlan): OptimizationPlan {
+  const source = isRecord(value) ? value : {};
+  const sourceItems = Array.isArray(source.items) ? source.items : [];
+  const items = sourceItems
+    .filter(isRecord)
+    .map((item) => ({
+      kind: optimizationKinds.includes(item.kind as OptimizationKind) ? item.kind as OptimizationKind : 'other' as const,
+      instruction: sanitizeUserFacingText(item.instruction, ''),
+      target: sanitizeUserFacingText(item.target, ''),
+      reason: sanitizeUserFacingText(item.reason, ''),
+      expectedEffect: sanitizeUserFacingText(item.expectedEffect, ''),
+    }))
+    .filter((item) => item.instruction && item.reason && item.expectedEffect)
+    .slice(0, 5);
+
+  return {
+    summary: sanitizeUserFacingText(source.summary, fallback.summary),
+    imagePrompt: sanitizeUserFacingText(source.imagePrompt, fallback.imagePrompt),
+    items: items.length ? items : fallback.items,
+  };
+}
+
 function normalizeGenreAssessment(value: unknown): GenreAssessment | undefined {
   if (!isRecord(value) || !genres.includes(value.detectedGenre as Genre)) return undefined;
 
@@ -126,6 +161,12 @@ export function mergeAiReportWithFallback(candidate: unknown, fallback: Report, 
     masking: emptyAdvice(),
   };
   const sourcePostProcessing = isRecord(source.postProcessing) ? source.postProcessing : {};
+  const normalizedPostProcessing = {
+    crop: normalizeAdvice(sourcePostProcessing.crop, fallbackPostProcessing.crop),
+    tone: normalizeAdvice(sourcePostProcessing.tone, fallbackPostProcessing.tone),
+    masking: normalizeAdvice(sourcePostProcessing.masking, fallbackPostProcessing.masking),
+  };
+  const fallbackOptimizationPlan = fallback.optimizationPlan ?? createFallbackOptimizationPlan(normalizedPostProcessing);
   const fallbackNextShooting = fallback.nextShooting ?? { summary: '', items: [] };
   const sourceNextShooting = isRecord(source.nextShooting) ? source.nextShooting : {};
   const fallbackPhotoSpecific = fallback.photoSpecific ?? {
@@ -177,11 +218,8 @@ export function mergeAiReportWithFallback(candidate: unknown, fallback: Report, 
     },
     // These four fields are controlled by the user's selections, not by the model.
     reviewContext,
-    postProcessing: {
-      crop: normalizeAdvice(sourcePostProcessing.crop, fallbackPostProcessing.crop),
-      tone: normalizeAdvice(sourcePostProcessing.tone, fallbackPostProcessing.tone),
-      masking: normalizeAdvice(sourcePostProcessing.masking, fallbackPostProcessing.masking),
-    },
+    postProcessing: normalizedPostProcessing,
+    optimizationPlan: normalizeOptimizationPlan(source.optimizationPlan, fallbackOptimizationPlan),
     nextShooting: {
       summary: sanitizeUserFacingText(sourceNextShooting.summary, fallbackNextShooting.summary),
       items: normalizeStringArray(sourceNextShooting.items, fallbackNextShooting.items, 3),

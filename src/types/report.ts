@@ -26,6 +26,28 @@ export type PostProcessingAdviceItem = {
   expectedEffect: string;
 };
 
+export type OptimizationKind =
+  | 'crop'
+  | 'tone'
+  | 'local-adjustment'
+  | 'cleanup'
+  | 'reframe'
+  | 'motion-effect'
+  | 'perspective'
+  | 'other';
+
+export type OptimizationPlan = {
+  summary: string;
+  imagePrompt: string;
+  items: Array<{
+    kind: OptimizationKind;
+    instruction: string;
+    target: string;
+    reason: string;
+    expectedEffect: string;
+  }>;
+};
+
 export type PreviewAdjustments = {
   crop: {
     ratio: string;
@@ -108,6 +130,7 @@ export type Report = {
     tone: PostProcessingAdviceItem;
     masking: PostProcessingAdviceItem;
   };
+  optimizationPlan?: OptimizationPlan;
   nextShooting?: NextShootingAdvice;
   photoSpecific?: PhotoSpecificFeedback;
   scoreReasons?: Partial<Record<ScoreName, string>>;
@@ -118,6 +141,7 @@ export type HistoryRecord = {
   id: string;
   title: string;
   imageUrl: string;
+  optimizedImageUrl?: string;
   fileName: string;
   medium: Medium;
   subject: Genre;

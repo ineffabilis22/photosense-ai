@@ -1,12 +1,14 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import type { Medium, PostProcessingAdviceItem, PreviewAdjustments, Report, SkillLevel } from '../types/report';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import type { Medium, NextShootingAdvice, OptimizationKind, Report } from '../types/report';
 import { getReportPreviewAdjustments, normalizePreviewAdjustments, renderPreview, type RenderedPreview } from '../utils/preview';
 
 type PostProcessingPreviewProps = {
   imageUrl: string;
   report: Report;
   medium: Medium;
-  skillLevel: SkillLevel;
+  nextShooting: NextShootingAdvice | null;
+  persistedImageUrl?: string;
+  onOptimizedImageGenerated?: (imageUrl: string) => Promise<void> | void;
   enabled: boolean;
 };
 
@@ -14,123 +16,206 @@ type ServerPreview = {
   imageDataUrl: string;
   width: number;
   height: number;
-  appliedRecipe: PreviewAdjustments;
-  tone: PostProcessingAdviceItem | null;
 };
 
+type ComparisonView = 'before' | 'after';
+
 const SERVER_PREVIEW_TIMEOUT_MS = 20_000;
+const AI_PREVIEW_TIMEOUT_MS = 120_000;
+const AI_PREVIEW_LONG_WAIT_MS = 30_000;
+const AI_PREVIEW_SUCCESS_NOTICE_MS = 3_200;
+const optimizationLabels: Record<OptimizationKind, string> = {
+  crop: '裁剪画面',
+  tone: '调整明暗',
+  'local-adjustment': '强化主体',
+  cleanup: '清理干扰',
+  reframe: '调整构图',
+  'motion-effect': '表现动态',
+  perspective: '整理透视',
+  other: '画面优化',
+};
 
-function formatSigned(value: number, suffix = '') {
-  if (value === 0) return `0${suffix}`;
-  return `${value > 0 ? '+' : ''}${Number(value.toFixed(2))}${suffix}`;
-}
-
-export function PostProcessingPreview({ imageUrl, report, medium, skillLevel, enabled }: PostProcessingPreviewProps) {
-  const isHobbyist = skillLevel === '爱好者水平';
+export function PostProcessingPreview({ imageUrl, report, medium, nextShooting, persistedImageUrl = '', onOptimizedImageGenerated, enabled }: PostProcessingPreviewProps) {
   const adjustments = useMemo(
     () => getReportPreviewAdjustments(report),
     [report],
   );
   const [localPreview, setLocalPreview] = useState<RenderedPreview | null>(null);
   const [serverPreview, setServerPreview] = useState<ServerPreview | null>(null);
+  const [aiPreviewUrl, setAiPreviewUrl] = useState('');
   const [localStatus, setLocalStatus] = useState<'idle' | 'rendering' | 'ready' | 'error'>('idle');
   const [serverStatus, setServerStatus] = useState<'idle' | 'rendering' | 'ready' | 'error'>('idle');
-  const [feedback, setFeedback] = useState('');
+  const [aiStatus, setAiStatus] = useState<'idle' | 'rendering' | 'ready' | 'error'>('idle');
+  const [hasLongWaited, setHasLongWaited] = useState(false);
+  const [showSuccessNotice, setShowSuccessNotice] = useState(false);
+  const [requestVersion, setRequestVersion] = useState(0);
+  const [comparisonView, setComparisonView] = useState<ComparisonView>('after');
+  const forceGenerationRef = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
-    const controller = new AbortController();
+    const previewController = new AbortController();
+    const imageController = new AbortController();
     let timeoutId: number | undefined;
+    let imageTimeoutId: number | undefined;
+    let longWaitTimerId: number | undefined;
+    let successNoticeTimerId: number | undefined;
+    let renderTimerId: number | undefined;
+    let animationFrameId: number | undefined;
 
+    const forceGeneration = forceGenerationRef.current;
+    forceGenerationRef.current = false;
     setLocalPreview(null);
     setServerPreview(null);
+    setAiPreviewUrl(forceGeneration ? '' : persistedImageUrl);
     setServerStatus('idle');
-    setFeedback('');
+    setAiStatus(!forceGeneration && persistedImageUrl ? 'ready' : 'idle');
+    setHasLongWaited(false);
+    setShowSuccessNotice(false);
+    setComparisonView('after');
 
     if (!enabled || !imageUrl) {
       setLocalStatus('idle');
       return () => {
         cancelled = true;
-        controller.abort();
+        previewController.abort();
+        imageController.abort();
       };
     }
 
-    setLocalStatus('rendering');
-    renderPreview(imageUrl, adjustments)
-      .then((preview) => {
-        if (cancelled) return;
-        setLocalPreview(preview);
-        setLocalStatus('ready');
-      })
-      .catch(() => {
-        if (cancelled) return;
-        setLocalStatus('error');
-      });
+    const startPreviewGeneration = () => {
+      if (cancelled) return;
 
-    if (imageUrl.startsWith('data:image/')) {
-      setServerStatus('rendering');
-      setFeedback(isHobbyist ? '正在生成最终效果，当前可先查看快速预览。' : 'Sharp 正在生成最终效果，当前可先查看 Canvas 快速预览。');
-      timeoutId = window.setTimeout(() => controller.abort(), SERVER_PREVIEW_TIMEOUT_MS);
-
-      void fetch('/api/render-preview', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          imageDataUrl: imageUrl,
-          medium,
-          recipe: adjustments,
-          legacyRecipe: report.recipe,
-        }),
-        signal: controller.signal,
-      })
-        .then(async (response) => {
-          const data = await response.json().catch(() => ({}));
-          if (!response.ok || !data?.preview?.imageDataUrl) {
-            throw new Error(data?.error || '服务器预览生成失败。');
-          }
+      setLocalStatus('rendering');
+      renderPreview(imageUrl, adjustments, report.recipe)
+        .then((preview) => {
           if (cancelled) return;
-          const tone = data?.toneProfile?.tone;
-          setServerPreview({
-            imageDataUrl: data.preview.imageDataUrl,
-            width: Number(data.preview.width) || 0,
-            height: Number(data.preview.height) || 0,
-            appliedRecipe: normalizePreviewAdjustments(data.preview.appliedRecipe ?? adjustments),
-            tone: tone && typeof tone.suggestion === 'string'
-              ? {
-                  suggestion: tone.suggestion,
-                  reason: typeof tone.reason === 'string' ? tone.reason : '',
-                  expectedEffect: typeof tone.expectedEffect === 'string' ? tone.expectedEffect : '',
-                }
-              : null,
-          });
-          setServerStatus('ready');
-          setFeedback(isHobbyist ? '服务器已生成最终效果。' : '已使用 Sharp 服务器渲染最终效果。');
+          setLocalPreview(preview);
+          setLocalStatus('ready');
         })
-        .catch((error) => {
+        .catch(() => {
           if (cancelled) return;
-          setServerStatus('error');
-          setFeedback(error instanceof DOMException && error.name === 'AbortError'
-            ? isHobbyist ? '服务器预览超时，已使用快速完整画幅预览。' : '服务器预览超时，已使用 Canvas 完整画幅预览。'
-            : isHobbyist ? '服务器预览生成失败，已使用快速完整画幅预览。' : '服务器预览生成失败，已使用 Canvas 完整画幅预览。');
-        })
-        .finally(() => {
-          if (timeoutId !== undefined) window.clearTimeout(timeoutId);
+          setLocalStatus('error');
         });
-    }
+
+      if (imageUrl.startsWith('data:image/')) {
+        if (report.optimizationPlan?.items.length && (forceGeneration || !persistedImageUrl)) {
+          setAiStatus('rendering');
+          longWaitTimerId = window.setTimeout(() => {
+            if (!cancelled) setHasLongWaited(true);
+          }, AI_PREVIEW_LONG_WAIT_MS);
+          imageTimeoutId = window.setTimeout(() => imageController.abort(), AI_PREVIEW_TIMEOUT_MS);
+
+          void fetch('/api/generate-optimized-image', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              imageDataUrl: imageUrl,
+              medium,
+              optimizationPlan: report.optimizationPlan,
+              nextShooting,
+            }),
+            signal: imageController.signal,
+          })
+            .then(async (response) => {
+              const data = await response.json().catch(() => ({}));
+              if (!response.ok || typeof data?.imageUrl !== 'string') {
+                throw new Error(data?.error || 'optimized-image-generation-failed');
+              }
+              if (cancelled) return;
+              await onOptimizedImageGenerated?.(data.imageUrl);
+              if (cancelled) return;
+              setAiPreviewUrl(data.imageUrl);
+              setAiStatus('ready');
+              setShowSuccessNotice(true);
+              successNoticeTimerId = window.setTimeout(() => {
+                if (!cancelled) setShowSuccessNotice(false);
+              }, AI_PREVIEW_SUCCESS_NOTICE_MS);
+            })
+            .catch(() => {
+              if (cancelled) return;
+              setAiStatus('error');
+            })
+            .finally(() => {
+              if (imageTimeoutId !== undefined) window.clearTimeout(imageTimeoutId);
+              if (longWaitTimerId !== undefined) window.clearTimeout(longWaitTimerId);
+            });
+        }
+
+        setServerStatus('rendering');
+        timeoutId = window.setTimeout(() => previewController.abort(), SERVER_PREVIEW_TIMEOUT_MS);
+
+        void fetch('/api/render-preview', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            imageDataUrl: imageUrl,
+            medium,
+            recipe: adjustments,
+            legacyRecipe: report.recipe,
+          }),
+          signal: previewController.signal,
+        })
+          .then(async (response) => {
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok || !data?.preview?.imageDataUrl) {
+              throw new Error(data?.error || 'preview-render-failed');
+            }
+            if (cancelled) return;
+            const appliedRecipe = normalizePreviewAdjustments(data.preview.appliedRecipe ?? adjustments);
+            setServerPreview({
+              imageDataUrl: data.preview.imageDataUrl,
+              width: Number(data.preview.width) || 0,
+              height: Number(data.preview.height) || 0,
+            });
+            setServerStatus('ready');
+            void renderPreview(imageUrl, appliedRecipe, report.recipe)
+              .then((preview) => {
+                if (cancelled) return;
+                setLocalPreview(preview);
+                setLocalStatus('ready');
+              })
+              .catch(() => undefined);
+          })
+          .catch(() => {
+            if (cancelled) return;
+            setServerStatus('error');
+          })
+          .finally(() => {
+            if (timeoutId !== undefined) window.clearTimeout(timeoutId);
+          });
+      }
+    };
+
+    // Let the report paint first so the expensive Canvas work never blocks report generation.
+    animationFrameId = window.requestAnimationFrame(() => {
+      renderTimerId = window.setTimeout(startPreviewGeneration, 0);
+    });
 
     return () => {
       cancelled = true;
-      controller.abort();
+      previewController.abort();
+      imageController.abort();
+      if (animationFrameId !== undefined) window.cancelAnimationFrame(animationFrameId);
+      if (renderTimerId !== undefined) window.clearTimeout(renderTimerId);
       if (timeoutId !== undefined) window.clearTimeout(timeoutId);
+      if (imageTimeoutId !== undefined) window.clearTimeout(imageTimeoutId);
+      if (longWaitTimerId !== undefined) window.clearTimeout(longWaitTimerId);
+      if (successNoticeTimerId !== undefined) window.clearTimeout(successNoticeTimerId);
     };
-  }, [adjustments, enabled, imageUrl, isHobbyist, medium, report.recipe]);
+  }, [adjustments, enabled, imageUrl, medium, report.optimizationPlan, report.recipe, requestVersion]);
+
+  function handleRegenerate() {
+    forceGenerationRef.current = true;
+    setRequestVersion((version) => version + 1);
+  }
 
   function handleDownload() {
-    const previewUrl = serverPreview?.imageDataUrl || localPreview?.previewUrl;
+    const previewUrl = aiPreviewUrl || serverPreview?.imageDataUrl || localPreview?.previewUrl;
     if (!previewUrl) return;
     const link = document.createElement('a');
     link.href = previewUrl;
-    link.download = `PhotoSense-AI-后期效果预览.${serverPreview ? 'webp' : 'jpg'}`;
+    link.download = `PhotoSense-AI-优化预览.${aiPreviewUrl ? 'png' : serverPreview ? 'webp' : 'jpg'}`;
     document.body.appendChild(link);
     link.click();
     link.remove();
@@ -139,8 +224,8 @@ export function PostProcessingPreview({ imageUrl, report, medium, skillLevel, en
   if (!enabled) {
     return (
       <div className="post-preview-panel post-preview-panel-disabled">
-        <p className="panel-kicker">效果预览</p>
-        <p>示例报告不生成后期效果。完成一次实时分析后即可查看。</p>
+        <p className="panel-kicker">优化预览</p>
+        <p>这条记录没有可用照片，暂时无法生成预览。</p>
       </div>
     );
   }
@@ -148,79 +233,156 @@ export function PostProcessingPreview({ imageUrl, report, medium, skillLevel, en
   if (!imageUrl) {
     return (
       <div className="post-preview-panel post-preview-panel-disabled">
-        <p className="panel-kicker">效果预览</p>
+        <p className="panel-kicker">优化预览</p>
         <p>这条记录没有可用照片，暂时无法生成预览。</p>
       </div>
     );
   }
 
-  const activePreviewUrl = serverPreview?.imageDataUrl || localPreview?.previewUrl || '';
+  const isAiReady = aiStatus === 'ready' && Boolean(aiPreviewUrl);
+  const hasOptimizationPlan = Boolean(report.optimizationPlan?.items.length);
+  const isAiGenerating = hasOptimizationPlan && !isAiReady && aiStatus !== 'error';
+  const isAiError = hasOptimizationPlan && aiStatus === 'error';
+  const fallbackPreviewUrl = serverPreview?.imageDataUrl || localPreview?.previewUrl || '';
+  const activePreviewUrl = isAiReady
+    ? comparisonView === 'before' ? imageUrl : aiPreviewUrl
+    : hasOptimizationPlan ? imageUrl : fallbackPreviewUrl;
+  const canDownloadPreview = hasOptimizationPlan ? isAiReady : Boolean(fallbackPreviewUrl);
   const previewWidth = serverPreview?.width || localPreview?.width;
   const previewHeight = serverPreview?.height || localPreview?.height;
-  const appliedAdjustments = serverPreview?.appliedRecipe ?? adjustments;
-  const tonePlan = isHobbyist ? report.postProcessing?.tone : serverPreview?.tone ?? report.postProcessing?.tone;
-  const rendererLabel = isHobbyist
-    ? serverStatus === 'ready' ? '服务器生成' : serverStatus === 'rendering' ? '正在生成' : '快速预览'
-    : serverStatus === 'ready' ? 'Sharp 服务器渲染' : serverStatus === 'rendering' ? 'Sharp 正在渲染' : 'Canvas 降级预览';
+  const optimizationItems = report.optimizationPlan?.items.length
+    ? report.optimizationPlan.items.map((item) => ({
+      label: optimizationLabels[item.kind],
+      instruction: item.instruction,
+      reason: item.reason,
+      expectedEffect: item.expectedEffect,
+    }))
+    : [
+      { label: '裁剪画面', instruction: report.postProcessing?.crop.suggestion, reason: report.postProcessing?.crop.reason, expectedEffect: report.postProcessing?.crop.expectedEffect },
+      { label: '调整明暗', instruction: report.postProcessing?.tone.suggestion, reason: report.postProcessing?.tone.reason, expectedEffect: report.postProcessing?.tone.expectedEffect },
+      { label: '强化主体', instruction: report.postProcessing?.masking.suggestion, reason: report.postProcessing?.masking.reason, expectedEffect: report.postProcessing?.masking.expectedEffect },
+    ].filter((item): item is { label: string; instruction: string; reason: string; expectedEffect: string } => Boolean(item.instruction && item.reason && item.expectedEffect));
 
   return (
-    <div className="post-preview-panel" aria-label="后期效果模拟预览">
+    <div className="post-preview-panel" aria-label="优化建议">
       <div className="post-preview-heading">
         <div>
-          <p className="panel-kicker">Processed image</p>
-          <h3>修改后效果预览</h3>
+          <h3>优化预览</h3>
         </div>
-        <span>{rendererLabel}</span>
       </div>
 
-      {!activePreviewUrl && (localStatus === 'rendering' || serverStatus === 'rendering') ? (
-        <div className="post-preview-loading" role="status">正在生成完整画幅预览…</div>
-      ) : null}
-      {!activePreviewUrl && localStatus === 'error' && serverStatus !== 'rendering' ? (
-        <div className="post-preview-loading" role="status">无法生成预览，原始报告内容不受影响。</div>
-      ) : null}
-
-      {activePreviewUrl ? (
-        <figure className="post-preview-image">
-          <img
-            src={activePreviewUrl}
-            alt="根据后期建议生成的完整画幅效果预览"
-            width={previewWidth}
-            height={previewHeight}
-          />
-        </figure>
-      ) : null}
-
-      {tonePlan ? (
-        <div className="post-preview-tone-plan" aria-label={isHobbyist ? '照片专属明暗方案' : '照片专属影调方案'}>
-          <p className="panel-kicker">{isHobbyist ? '照片专属明暗方案' : '照片专属影调方案'}</p>
-          <strong>{tonePlan.suggestion}</strong>
-          <p>{tonePlan.reason} {tonePlan.expectedEffect}</p>
+      {optimizationItems.length ? (
+        <div className="post-preview-layout">
+          <figure className="post-preview-image">
+            {activePreviewUrl ? (
+              <img
+                src={activePreviewUrl}
+                alt={isAiReady && comparisonView === 'before' ? '修改前的原始照片' : '根据本次分析结论生成的优化后图片'}
+                width={previewWidth}
+                height={previewHeight}
+              />
+            ) : (
+              <div className="post-preview-loading" role="status">
+                {localStatus === 'rendering' || serverStatus === 'rendering' || aiStatus === 'rendering' ? '正在生成优化后的图片…' : '预览暂时无法生成，报告内容仍可查看。'}
+              </div>
+            )}
+            {isAiReady ? (
+              <div className="post-preview-comparison-toggle" role="group" aria-label="切换修改前后照片">
+                <button type="button" aria-pressed={comparisonView === 'before'} onClick={() => setComparisonView('before')}>
+                  修改前
+                </button>
+                <button type="button" aria-pressed={comparisonView === 'after'} onClick={() => setComparisonView('after')}>
+                  修改后
+                </button>
+              </div>
+            ) : null}
+            {hasOptimizationPlan ? (
+              <div
+                className={`post-preview-status post-preview-status-${isAiReady ? 'ready' : isAiError ? 'error' : 'generating'}`}
+                aria-hidden="true"
+              >
+                <span className="post-preview-status-dot" />
+                <span>{isAiReady ? '已完成' : isAiError ? '暂未完成' : '生成中'}</span>
+              </div>
+            ) : null}
+            {isAiGenerating ? (
+              <div className="post-preview-loading-overlay" role="status" aria-live="polite">
+                <div className="post-preview-state-copy">
+                  <strong>{hasLongWaited ? '仍在生成优化后照片' : '正在生成优化后照片'}</strong>
+                  <p>
+                    {hasLongWaited
+                      ? '画面调整需要更多时间，完成后会自动显示。'
+                      : '这一步比文字报告需要更长时间，你可以先阅读右侧的优化内容。'}
+                  </p>
+                  <span className="post-preview-progress-line" aria-hidden="true"><span /></span>
+                </div>
+              </div>
+            ) : null}
+            {isAiError ? (
+              <div className="post-preview-loading-overlay post-preview-error-overlay" role="status" aria-live="polite">
+                <div className="post-preview-state-copy">
+                  <strong>优化后照片暂时未生成</strong>
+                  <p>文字报告仍可正常查看，你可以重新尝试。</p>
+                </div>
+              </div>
+            ) : null}
+            {isAiReady && showSuccessNotice ? (
+              <div className="post-preview-success-overlay" role="status" aria-live="polite">
+                <strong>优化后照片已生成</strong>
+                <span>可以切换修改前和修改后查看变化。</span>
+              </div>
+            ) : null}
+            <div className="post-preview-actions">
+              {isAiReady ? (
+                <p className="post-preview-completion-note" role="status" aria-live="polite">
+                  <strong>优化后照片已生成</strong>
+                  <span>可以切换“修改前 / 修改后”，查看画面变化。</span>
+                </p>
+              ) : null}
+              <div className="post-preview-button-row">
+                {(isAiReady || aiStatus === 'error') && report.optimizationPlan?.items.length ? (
+                  <button type="button" className="secondary-button compact" onClick={handleRegenerate}>
+                    重新生成
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  className="secondary-button compact"
+                  disabled={!canDownloadPreview}
+                  onClick={handleDownload}
+                >
+                  保存预览
+                </button>
+              </div>
+            </div>
+          </figure>
+          <div className="post-preview-copy" aria-label="后期建议内容">
+            <p className="panel-kicker">后期建议</p>
+            <div className="post-preview-suggestions">
+              {optimizationItems.map((item, index) => (
+                <article key={`${item.label}-${index}`}>
+                  <span>{item.label}</span>
+                  <h4>{item.instruction}</h4>
+                  <p><strong>理由：</strong>{item.reason}</p>
+                  <p><strong>变化：</strong>{item.expectedEffect}</p>
+                </article>
+              ))}
+            </div>
+            {nextShooting?.items.length ? (
+              <div className="post-preview-next-shot">
+                <p className="panel-kicker">如果当时再拍一次</p>
+                <p className="post-preview-next-shot-summary">{nextShooting.summary}</p>
+                <ul>
+                  {nextShooting.items.map((item) => (
+                    <li key={item}>{item}</li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+          </div>
         </div>
       ) : null}
 
-      <div className="post-preview-parameters" aria-label={isHobbyist ? '已应用的整体调整' : '已应用的全局影调参数'}>
-        <span>{isHobbyist ? '整体明暗' : '曝光'} {formatSigned(appliedAdjustments.global.exposureEv, isHobbyist ? '' : ' EV')}</span>
-        <span>{isHobbyist ? '明暗差异' : '对比'} {formatSigned(appliedAdjustments.global.contrast)}</span>
-        <span>{isHobbyist ? '最亮区域' : '高光'} {formatSigned(appliedAdjustments.global.highlights)}</span>
-        <span>{isHobbyist ? '较暗区域' : '阴影'} {formatSigned(appliedAdjustments.global.shadows)}</span>
-        <span>{isHobbyist ? '画面冷暖' : '色温'} {formatSigned(appliedAdjustments.global.temperature)}</span>
-        <span>{isHobbyist ? '颜色浓淡' : '饱和度'} {formatSigned(appliedAdjustments.global.saturation)}</span>
-      </div>
-
-      <div className="post-preview-actions">
-        <button
-          type="button"
-          className="secondary-button compact"
-          disabled={!activePreviewUrl}
-          onClick={handleDownload}
-        >
-          保存预览
-        </button>
-      </div>
-
-      {feedback ? <p className={`post-preview-feedback is-${serverStatus}`} role="status">{feedback}</p> : null}
-      <p className="post-preview-note">{isHobbyist ? '完整画幅预览只应用整体明暗和颜色调整；裁剪与局部调整建议保留为文字参考，不会切割这张预览图。' : '完整画幅预览仅应用全局影调；裁剪与局部蒙版建议保留为文字参考，不会切割这张预览图。'}</p>
     </div>
   );
 }

@@ -91,6 +91,27 @@ function clampNumber(value, min, max) {
   return Math.max(min, Math.min(max, value));
 }
 
+function getCropFrame(width, height, ratio, anchorX = 0.5, anchorY = 0.5) {
+  const [ratioWidth, ratioHeight] = ratio.split(':').map(Number);
+  const targetRatio = ratioWidth > 0 && ratioHeight > 0 ? ratioWidth / ratioHeight : 0;
+  if (!targetRatio || ratio === 'original') return null;
+
+  let frameWidth = width;
+  let frameHeight = height;
+  if (width / height > targetRatio) {
+    frameWidth = height * targetRatio;
+  } else {
+    frameHeight = width / targetRatio;
+  }
+
+  return {
+    left: Math.round((width - frameWidth) * clamp(anchorX, 0.5, 0, 1)),
+    top: Math.round((height - frameHeight) * clamp(anchorY, 0.5, 0, 1)),
+    width: Math.round(frameWidth),
+    height: Math.round(frameHeight),
+  };
+}
+
 function roundToStep(value, step = 1) {
   return Math.round(value / step) * step;
 }
@@ -288,10 +309,7 @@ function applyPixelAdjustments(data, recipe) {
 export async function renderPreviewImage({ imageDataUrl, recipe, legacyRecipe }) {
   const input = parseImageDataUrl(imageDataUrl);
   const normalizedRecipe = normalizePreviewRecipe(recipe, legacyRecipe);
-  const appliedRecipe = {
-    ...normalizedRecipe,
-    crop: { ratio: 'original', anchorX: 0.5, anchorY: 0.5 },
-  };
+  const appliedRecipe = normalizedRecipe;
 
   let orientedBuffer;
   try {
@@ -302,7 +320,18 @@ export async function renderPreviewImage({ imageDataUrl, recipe, legacyRecipe })
     throw statusError('无法读取这张图片，请确认文件没有损坏。', 422);
   }
 
-  const { data, info } = await sharp(orientedBuffer)
+  const orientedMetadata = await sharp(orientedBuffer).metadata();
+  const cropFrame = getCropFrame(
+    orientedMetadata.width || 1,
+    orientedMetadata.height || 1,
+    appliedRecipe.crop.ratio,
+    appliedRecipe.crop.anchorX,
+    appliedRecipe.crop.anchorY,
+  );
+  const workingImage = cropFrame
+    ? sharp(orientedBuffer).extract(cropFrame)
+    : sharp(orientedBuffer);
+  const { data, info } = await workingImage
     .resize({ width: MAX_OUTPUT_EDGE, height: MAX_OUTPUT_EDGE, fit: 'inside', withoutEnlargement: true })
     .toColourspace('srgb')
     .ensureAlpha()
