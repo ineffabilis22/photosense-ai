@@ -18,7 +18,7 @@ import type {
 } from './types/report';
 import { filterAndSortHistoryRecords, countRecordsInCurrentMonth, type HistorySort } from './utils/history';
 import { analysisPhases, getAnalysisPhaseStatus, getAnalysisWaitMessage } from './utils/analysis';
-import { createFullReportPart, createPortraitReportPart, shouldIncludeReportSection, type ReportExportMode } from './utils/report-export';
+import { createFullReportPart, createPortraitReportPart, normalizeReportArtworkContent, shouldIncludeReportSection, type ReportExportMode } from './utils/report-export';
 import { mergeAiReportWithFallback } from './utils/report';
 import { formatFileSize, validateImageFile } from './utils/upload';
 import { PostProcessingPreview } from './components/PostProcessingPreview';
@@ -1146,6 +1146,16 @@ function getReportSource(value: unknown): ReportSource {
 
 function getErrorMessage(error: unknown, fallback: string) {
   return error instanceof Error && error.message.trim() ? error.message : fallback;
+}
+
+function getReportArtworkApiUrl() {
+  const apiUrl = getAnalysisApiUrl();
+
+  try {
+    return new URL('/api/generate-report-artwork', apiUrl).toString();
+  } catch {
+    return apiUrl.replace(/\/api\/analyze-photo$/, '/api/generate-report-artwork') || '/api/generate-report-artwork';
+  }
 }
 
 function isKnownTestHistoryRecord(record: unknown) {
@@ -2809,7 +2819,7 @@ function ReportPage({
 
     setIsExportMenuOpen(false);
     setIsExporting(true);
-    setExportStatus(`正在生成${mode === 'simple' ? '简易' : '详细'}报告图片…`);
+    setExportStatus('正在生成 AI 报告视觉…');
 
     const exportHost = document.createElement('div');
     exportHost.className = 'page-report report-export-host';
@@ -2833,6 +2843,35 @@ function ReportPage({
     document.body.appendChild(exportHost);
 
     try {
+      if (displayedImageUrl.startsWith('data:image/')) {
+        const reportContent = normalizeReportArtworkContent(clonedReport.innerText);
+        const artworkResponse = await fetch(getReportArtworkApiUrl(), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            imageDataUrl: displayedImageUrl,
+            mode,
+            reportContent,
+          }),
+        });
+        const artworkData = await artworkResponse.json() as { ok?: boolean; artworkUrl?: string; error?: string };
+        if (!artworkResponse.ok || !artworkData.ok || !artworkData.artworkUrl) {
+          throw new Error(artworkData.error || '报告视觉生成失败');
+        }
+
+        const artworkImage = document.createElement('img');
+        artworkImage.className = 'report-export-artwork';
+        artworkImage.alt = '';
+        artworkImage.setAttribute('aria-hidden', 'true');
+        if (/^https?:\/\//.test(artworkData.artworkUrl)) {
+          artworkImage.crossOrigin = 'anonymous';
+          artworkImage.referrerPolicy = 'no-referrer';
+        }
+        artworkImage.src = artworkData.artworkUrl;
+        clonedReport.prepend(artworkImage);
+      }
+      setExportStatus(`正在排版${mode === 'simple' ? '简易' : '详细'}报告…`);
+
       await document.fonts?.ready;
       await Promise.all([...clonedReport.querySelectorAll('img')].map(async (image) => {
         if (!image.complete) {
@@ -2887,7 +2926,9 @@ function ReportPage({
       setExportStatus(`已导出 ${imageParts.length} 张报告图片`);
     } catch (error) {
       console.error('Report export failed', error);
-      setExportStatus('导出失败，请稍后重试');
+      setExportStatus(error instanceof Error && /报告视觉/.test(error.message)
+        ? `${error.message}，请稍后重试`
+        : '导出失败，请稍后重试');
     } finally {
       exportHost.remove();
       setIsExporting(false);

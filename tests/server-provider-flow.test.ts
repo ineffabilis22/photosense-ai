@@ -298,6 +298,25 @@ test('OpenAI-compatible 完整链路传递新提示词并返回照片针对性�
     assert.match(imageProviderRequests[0].body, /提高或降低机位.*透视关系出现可见变化/);
     assert.match(imageProviderRequests[0].body, /如果修改前后并排时只能看出影调差别.*结果不合格/);
     assert.match(imageProviderRequests[0].body, /这些保留要求不能抵消建议明确要求的主体移动、姿态变化、重新取景、遮挡清理或透视调整/);
+
+    const artworkResponse = await fetch(`http://127.0.0.1:${appPort}/api/generate-report-artwork`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        imageDataUrl,
+        mode: 'detailed',
+        reportContent: '01 评审结论\n红伞建立了清楚的夜景入口\n03 优化建议\n从右侧轻微裁切。',
+      }),
+    });
+    const artwork = await artworkResponse.json();
+    assert.equal(artworkResponse.status, 200, `${stdout}\n${stderr}`);
+    assert.equal(artwork.ok, true);
+    assert.match(artwork.artworkUrl, /^data:image\/png;base64,/);
+    assert.equal(artwork.styleVersion, 'darkroom-editorial-report-v1');
+    assert.equal(imageProviderRequests.length, 2);
+    assert.match(imageProviderRequests[1].body, /PhotoSense AI 的详细报告/);
+    assert.match(imageProviderRequests[1].body, /严禁生成任何文字、汉字、字母、数字/);
+    assert.match(imageProviderRequests[1].body, /红伞建立了清楚的夜景入口/);
   } finally {
     await stopChild(child);
     await close(provider);

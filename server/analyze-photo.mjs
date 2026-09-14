@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { hasConfiguredImageProvider, hasConfiguredProvider, isHistoryExportEnabled, readBoundedNumber } from './config.mjs';
-import { generateOptimizedImage } from './image-optimizer.mjs';
+import { generateOptimizedImage, generateReportArtwork } from './image-optimizer.mjs';
 import { analyzeImageTone, normalizePreviewRecipe, renderPreviewImage } from './preview-renderer.mjs';
 
 const PORT = Number(process.env.PORT || 8787);
@@ -1851,6 +1851,25 @@ const server = http.createServer(async (request, response) => {
     return;
   }
 
+  if (requestUrl.pathname === '/api/generate-report-artwork') {
+    try {
+      const body = await readJsonBody(request);
+      const result = await generateReportArtwork({
+        imageDataUrl: body?.imageDataUrl,
+        mode: body?.mode === 'simple' ? 'simple' : 'detailed',
+        reportContent: body?.reportContent,
+      });
+      sendJson(response, 200, { ok: true, ...result });
+    } catch (error) {
+      console.error('[PhotoSense AI] report artwork generation failed:', error?.message || error);
+      sendJson(response, error.statusCode || 500, {
+        ok: false,
+        error: error.message || '报告视觉暂时无法生成。',
+      });
+    }
+    return;
+  }
+
   if (requestUrl.pathname !== '/api/analyze-photo') {
     sendJson(response, 404, { error: 'Not found' });
     return;
@@ -1885,4 +1904,5 @@ server.listen(PORT, () => {
   console.log(`PhotoSense AI local API running at http://localhost:${PORT}/api/analyze-photo`);
   console.log(`PhotoSense AI preview renderer running at http://localhost:${PORT}/api/render-preview`);
   console.log(`PhotoSense AI optimized image API running at http://localhost:${PORT}/api/generate-optimized-image`);
+  console.log(`PhotoSense AI report artwork API running at http://localhost:${PORT}/api/generate-report-artwork`);
 });

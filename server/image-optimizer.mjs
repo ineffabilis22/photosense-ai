@@ -2,6 +2,8 @@ import { hasConfiguredImageProvider, readBoundedNumber } from './config.mjs';
 import sharp from 'sharp';
 
 const MAX_DECODED_IMAGE_BYTES = 12 * 1024 * 1024;
+const MAX_REPORT_CONTENT_LENGTH = 12_000;
+const REPORT_ARTWORK_STYLE_VERSION = 'darkroom-editorial-report-v1';
 const allowedKinds = new Set(['crop', 'tone', 'local-adjustment', 'cleanup', 'reframe', 'motion-effect', 'perspective', 'other']);
 
 function createHttpError(message, statusCode) {
@@ -29,6 +31,16 @@ function parseImageDataUrl(imageDataUrl) {
 
 function normalizeText(value, maxLength) {
   return typeof value === 'string' ? value.trim().slice(0, maxLength) : '';
+}
+
+function normalizeReportContent(value) {
+  const content = normalizeText(value, MAX_REPORT_CONTENT_LENGTH)
+    .replace(/\r\n?/g, '\n')
+    .replace(/[ \t]+/g, ' ')
+    .replace(/\n{3,}/g, '\n\n');
+
+  if (content.length < 20) throw createHttpError('缺少可用于导出的报告内容。', 400);
+  return content;
 }
 
 function normalizeOptimizationPlan(value) {
@@ -74,6 +86,13 @@ function createImageEditPrompt(plan, medium, nextShooting) {
     : '';
 
   return `请编辑所提供的摄影作品，不要添加图上批注、文字、边框或箭头。\n${nextShotBlock}${primaryNextShot ? '在完成上述清楚可见的再拍变化后，再执行以下与它不冲突的画面优化：' : '请执行以下画面优化：'}\n${instructions}\n${plan.imagePrompt ? `补充要求：${plan.imagePrompt}\n` : ''}保持原照片中的人物身份、面部特征、主体内容、地点、天气、时段、真实光线逻辑、摄影风格和${medium === '胶片摄影' ? '胶片颗粒与色偏特征' : '自然成像质感'}，但这些保留要求不能抵消建议明确要求的主体移动、姿态变化、重新取景、遮挡清理或透视调整。不得创造原图无法支持的新人物、新物体、新事件或新故事。严格保持仍出现在画面中的招牌、文字、数字、车牌与标志的内容和拼写，不得重写或生成相似文字；建议要求重新取景或移除干扰时，可以让边缘文字或标志自然离开画面。未被建议涉及的区域尽量保持不变。输出一张自然、可信、没有批注、像是在同一现场按建议重新拍摄后得到的照片。`;
+}
+
+export function createReportArtworkPrompt(reportContent, mode = 'detailed') {
+  const content = normalizeReportContent(reportContent);
+  const reportType = mode === 'simple' ? '简易报告' : '详细报告';
+
+  return `请以提供的摄影作品为视觉来源，为 PhotoSense AI 的${reportType}制作一张固定风格的纯视觉底图。\n这不是报告成品，准确的中文正文、评分、章节标题和图表会由程序在后续叠加。\n严禁生成任何文字、汉字、字母、数字、标志、按钮、边框、图表、界面截图、网页组件或伪造排版。\n视觉方向：现代暗房工作台与摄影编辑刊物；深炭黑 #0b0b0b 和 #151515 为主，暖灰纸色作为克制层次，只允许少量暗橙红 #c86852；低饱和、低对比、细腻纤维质感、明确留白、安静且专业。\n保留原照片可辨认的光线、主体关系和摄影气质，但将其处理为不影响阅读的抽象背景层；不得改变或伪造照片中的人物身份与事件。\n构图要求：适合纵向长报告顶部与章节之间延展，主要视觉重量放在上半部和边缘，中部保留大面积深色留白，避免任何会与正文竞争的高亮细节。\n以下报告正文只用于理解照片主题、问题重点和阅读节奏，不得复制、改写或画进图片：\n---\n${content}\n---\n输出仅包含无文字的视觉底图。`;
 }
 
 async function createStructureSignature(buffer) {
@@ -134,7 +153,7 @@ function createImageForm({ buffer, mimeType, extension, model, prompt }) {
   return form;
 }
 
-async function requestOptimizedImage({ endpoint, apiKey, model, buffer, mimeType, extension, prompt, timeoutMs }) {
+async function requestOptimizedImage({ endpoint, apiKey, model, buffer, mimeType, extension, prompt, timeoutMs, purpose = '优化图片' }) {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
   let providerResponse;
@@ -147,22 +166,22 @@ async function requestOptimizedImage({ endpoint, apiKey, model, buffer, mimeType
       signal: controller.signal,
     });
   } catch (error) {
-    if (error?.name === 'AbortError') throw createHttpError('优化图片生成超时，请稍后重试。', 504);
-    throw createHttpError('暂时无法连接优化图片服务。', 502);
+    if (error?.name === 'AbortError') throw createHttpError(`${purpose}生成超时，请稍后重试。`, 504);
+    throw createHttpError(`暂时无法连接${purpose}服务。`, 502);
   } finally {
     clearTimeout(timeoutId);
   }
 
   if (!providerResponse.ok) {
     console.error('[PhotoSense AI] image relay response status:', providerResponse.status);
-    throw createHttpError('优化图片暂时无法生成，请稍后重试。', providerResponse.status >= 500 ? 502 : providerResponse.status);
+    throw createHttpError(`${purpose}暂时无法生成，请稍后重试。`, providerResponse.status >= 500 ? 502 : providerResponse.status);
   }
 
   let data;
   try {
     data = await providerResponse.json();
   } catch {
-    throw createHttpError('优化图片服务返回了无法读取的结果。', 502);
+    throw createHttpError(`${purpose}服务返回了无法读取的结果。`, 502);
   }
 
   const firstImage = data?.data?.[0];
@@ -176,7 +195,7 @@ async function requestOptimizedImage({ endpoint, apiKey, model, buffer, mimeType
     return { imageUrl: firstImage.url, imageBuffer: null };
   }
 
-  throw createHttpError('优化图片服务没有返回图片。', 502);
+  throw createHttpError(`${purpose}服务没有返回图片。`, 502);
 }
 
 export async function generateOptimizedImage({ imageDataUrl, medium = '数码摄影', optimizationPlan, nextShooting }, env = process.env) {
@@ -225,4 +244,41 @@ export async function generateOptimizedImage({ imageDataUrl, medium = '数码摄
   }
 
   return { imageUrl: result.imageUrl, provider: 'image-relay' };
+}
+
+export async function generateReportArtwork({ imageDataUrl, mode = 'detailed', reportContent }, env = process.env) {
+  if (!hasConfiguredImageProvider(env)) {
+    throw createHttpError('报告视觉生成服务暂未配置。', 503);
+  }
+
+  const baseUrl = normalizeImageRelayBaseUrl(env.IMAGE_RELAY_BASE_URL);
+  let endpoint;
+  try {
+    endpoint = new URL(`${baseUrl}/images/edits`);
+  } catch {
+    throw createHttpError('报告视觉生成服务地址配置不正确。', 503);
+  }
+  if (!['http:', 'https:'].includes(endpoint.protocol)) {
+    throw createHttpError('报告视觉生成服务地址配置不正确。', 503);
+  }
+
+  const { buffer, mimeType } = parseImageDataUrl(imageDataUrl);
+  const extension = mimeType === 'image/jpeg' ? 'jpg' : mimeType.split('/')[1];
+  const result = await requestOptimizedImage({
+    endpoint,
+    apiKey: env.IMAGE_RELAY_API_KEY,
+    model: String(env.IMAGE_RELAY_MODEL).trim(),
+    buffer,
+    mimeType,
+    extension,
+    prompt: createReportArtworkPrompt(reportContent, mode),
+    timeoutMs: readBoundedNumber(env, 'IMAGE_RELAY_TIMEOUT_MS', 120_000, { min: 10_000, max: 300_000, integer: true }),
+    purpose: '报告视觉',
+  });
+
+  return {
+    artworkUrl: result.imageUrl,
+    provider: 'image-relay',
+    styleVersion: REPORT_ARTWORK_STYLE_VERSION,
+  };
 }

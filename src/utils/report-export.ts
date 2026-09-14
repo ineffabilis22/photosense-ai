@@ -1,5 +1,6 @@
 const MIN_PORTRAIT_HEIGHT_RATIO = 4 / 3;
-const REPORT_PAGE_BACKGROUND = '#eee7d8';
+const REPORT_PAGE_BACKGROUND = '#0b0b0b';
+const MAX_REPORT_ARTWORK_CONTENT_LENGTH = 12_000;
 
 export type ReportExportMode = 'simple' | 'detailed';
 
@@ -7,6 +8,17 @@ const SIMPLE_REPORT_SECTION_IDS = new Set(['report-overview', 'report-post-proce
 
 export function shouldIncludeReportSection(mode: ReportExportMode, sectionId: string) {
   return mode === 'detailed' || SIMPLE_REPORT_SECTION_IDS.has(sectionId);
+}
+
+export function normalizeReportArtworkContent(value: string) {
+  return value
+    .replace(/\u00a0/g, ' ')
+    .replace(/\r\n?/g, '\n')
+    .split('\n')
+    .map((line) => line.replace(/[ \t]+/g, ' ').trim())
+    .filter(Boolean)
+    .join('\n')
+    .slice(0, MAX_REPORT_ARTWORK_CONTENT_LENGTH);
 }
 
 export function getPortraitReportSize(width: number, height: number) {

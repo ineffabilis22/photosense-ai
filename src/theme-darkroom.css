@@ -6255,6 +6255,8 @@ textarea {
 }
 
 .page-report .report-export-host > .report-section.page-view {
+  position: relative;
+  isolation: isolate;
   box-sizing: border-box;
   width: 1320px !important;
   max-width: none !important;
@@ -6263,6 +6265,27 @@ textarea {
   color: var(--em-paper);
   background: var(--em-canvas) !important;
   background-image: none !important;
+  overflow: hidden;
+}
+
+.page-report .report-export-host > .report-section.page-view > :not(.report-export-artwork) {
+  position: relative;
+  z-index: 1;
+}
+
+.page-report .report-export-host .report-export-artwork {
+  position: absolute;
+  inset: 0 0 auto;
+  z-index: 0;
+  display: block;
+  width: 100%;
+  height: 980px;
+  object-fit: cover;
+  object-position: center 28%;
+  opacity: 0.22;
+  filter: saturate(0.72) contrast(1.08) brightness(0.58);
+  -webkit-mask-image: linear-gradient(to bottom, #000 0%, rgba(0, 0, 0, 0.92) 52%, transparent 100%);
+  mask-image: linear-gradient(to bottom, #000 0%, rgba(0, 0, 0, 0.92) 52%, transparent 100%);
 }
 
 .page-report .report-export-host .report-header-tools,
@@ -6289,7 +6312,7 @@ textarea {
 .page-report .report-export-host .diagnostic-report {
   width: 100% !important;
   max-width: none !important;
-  background: var(--em-canvas) !important;
+  background: transparent !important;
   background-image: none !important;
 }
 
