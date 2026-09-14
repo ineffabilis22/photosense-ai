@@ -6241,70 +6241,64 @@ textarea {
   display: none;
 }
 
-.page-report .diagnostic-report.is-exporting {
-  width: 1080px !important;
+.page-report .report-export-host {
+  position: fixed;
+  top: 0;
+  left: -20000px;
+  z-index: -1;
+  width: 1320px;
+  height: auto;
+  overflow: visible;
+  pointer-events: none;
+  color: var(--em-paper);
+  background: var(--em-canvas);
+}
+
+.page-report .report-export-host > .report-section.page-view {
+  box-sizing: border-box;
+  width: 1320px !important;
   max-width: none !important;
-  padding: 64px !important;
-  color: var(--ps-ink);
-  background-color: #eee7d8 !important;
-  background-image: url('/theme/manual-paper-texture.png') !important;
-  background-size: 980px !important;
+  margin: 0 !important;
+  padding: var(--em-space-12) var(--em-space-16) var(--em-space-20) !important;
+  color: var(--em-paper);
+  background: var(--em-canvas) !important;
+  background-image: none !important;
 }
 
-.page-report .diagnostic-report.is-exporting .report-export-cover {
-  display: grid !important;
-  gap: 14px;
-  margin: 0 0 36px;
-  padding: 38px 42px;
-  color: var(--ps-paper-soft);
-  background: #2c2b26;
-  box-shadow: inset 7px 0 0 var(--ps-orange-bright);
+.page-report .report-export-host .report-header-tools,
+.page-report .report-export-host .report-side-nav,
+.page-report .report-export-host .report-action-tooltip,
+.page-report .report-export-host .report-export-menu,
+.page-report .report-export-host .report-retry-button,
+.page-report .report-export-host .report-genre-warning > button,
+.page-report .report-export-host .post-preview-actions,
+.page-report .report-export-host .post-preview-comparison-toggle,
+.page-report .report-export-host .post-preview-status,
+.page-report .report-export-host .post-preview-loading-overlay,
+.page-report .report-export-host .post-preview-success-overlay {
+  display: none !important;
 }
 
-.page-report .diagnostic-report.is-exporting .report-export-cover h2,
-.page-report .diagnostic-report.is-exporting .report-export-cover p {
-  max-width: 760px;
-  margin: 0;
-  color: inherit;
+.page-report .report-export-host .diagnostic-report-shell {
+  display: block !important;
+  border: 0 !important;
+  background: transparent !important;
+  background-image: none !important;
 }
 
-.page-report .diagnostic-report.is-exporting .report-export-cover h2 {
-  font-size: 3.1rem;
-  line-height: 1.08;
+.page-report .report-export-host .diagnostic-report {
+  width: 100% !important;
+  max-width: none !important;
+  background: var(--em-canvas) !important;
+  background-image: none !important;
 }
 
-.page-report .diagnostic-report.is-exporting .report-export-cover > div {
-  display: grid;
-  gap: 6px;
-  margin-top: 14px;
-  padding-top: 16px;
-  border-top: 1px solid rgba(242, 234, 217, 0.2);
-}
-
-.page-report .diagnostic-report.is-exporting .report-export-cover > div strong {
-  color: #ef9a79;
-}
-
-.page-report .diagnostic-report.is-exporting .diagnosis-grid,
-.page-report .diagnostic-report.is-exporting .post-processing-grid {
-  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
-}
-
-.page-report .diagnostic-report.is-exporting .diagnostic-card,
-.page-report .diagnostic-report.is-exporting .diagnostic-card:nth-child(n + 4) {
-  grid-column: auto !important;
-}
-
-.page-report .diagnostic-report.is-exporting .post-advice-card:last-child {
-  grid-column: 1 / -1 !important;
-}
-
-.page-report .diagnostic-report.is-exporting .diagnostic-image-board {
+.page-report .report-export-host .diagnostic-image-board {
   min-height: 0 !important;
   height: auto !important;
 }
 
-.page-report .diagnostic-report.is-exporting .diagnostic-image-board img {
+.page-report .report-export-host .diagnostic-image-board img {
   width: 100% !important;
   height: auto !important;
   max-height: none !important;
@@ -6312,20 +6306,11 @@ textarea {
   transform: none !important;
 }
 
-.page-report .diagnostic-report.is-exporting :is(
-  .dimension-diagnosis,
-  .post-processing-advice,
-  .next-shooting-actions,
-  .diagnostic-card.is-priority
-) {
-  background-image: none !important;
-}
-
-.page-report .diagnostic-report.is-exporting :is(.diagnostic-card, .post-advice-card, .next-shooting-actions li) {
+.page-report .report-export-host .diagnostic-report :is(.diagnostic-card, .post-advice-card, .next-shooting-actions li) {
   box-shadow: none !important;
 }
 
-.page-report .diagnostic-report.is-exporting details > summary::after {
+.page-report .report-export-host .diagnostic-report details > summary::after {
   display: none !important;
 }
 
@@ -6404,21 +6389,11 @@ textarea {
   line-height: 1.45;
 }
 
-.report-export-host {
-  position: fixed;
-  top: 0;
-  left: -20000px;
-  z-index: -1;
-  width: 1080px;
-  height: auto;
-  pointer-events: none;
-}
-
-.page-report .diagnostic-report.is-simple-export {
+.page-report .report-export-host > .report-section.page-view.is-simple-export .diagnostic-report {
   gap: 28px !important;
 }
 
-.page-report .diagnostic-report.is-simple-export :is(
+.page-report .report-export-host > .report-section.page-view.is-simple-export .diagnostic-report :is(
   .photo-specific-summary,
   .dimension-diagnosis,
   .next-shooting-actions,
@@ -6441,16 +6416,16 @@ textarea {
   opacity: 0.48;
 }
 
-.page-report .diagnostic-report.is-simple-export .diagnostic-hero-report {
+.page-report .report-export-host > .report-section.page-view.is-simple-export .diagnostic-hero-report {
   gap: 28px !important;
 }
 
-.page-report .diagnostic-report.is-simple-export .report-opening-summary {
+.page-report .report-export-host > .report-section.page-view.is-simple-export .report-opening-summary {
   grid-template-columns: minmax(0, 1.25fr) minmax(260px, 0.75fr) !important;
   gap: 24px !important;
 }
 
-.page-report .diagnostic-report.is-simple-export .diagnostic-image-board img {
+.page-report .report-export-host > .report-section.page-view.is-simple-export .diagnostic-image-board img {
   max-height: none !important;
   object-fit: contain !important;
 }
@@ -6687,16 +6662,6 @@ textarea {
     object-fit: contain;
   }
 
-}
-
-.page-report .diagnostic-report.is-simple-export .report-export-cover {
-  color: #fff4e4;
-  background: var(--ps-orange) !important;
-  box-shadow: inset 7px 0 0 #8f2f1a;
-}
-
-.page-report .diagnostic-report.is-simple-export .report-export-cover > div strong {
-  color: #fff4e4;
 }
 
 .history-page .history-card {

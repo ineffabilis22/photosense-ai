@@ -1793,8 +1793,8 @@
   stroke: var(--em-line-dark);
 }
 
-/* Legacy report rules use important paper colours; restore dark-mode contrast
-   only for the live report. Export clones intentionally keep their paper CSS. */
+/* Legacy report rules use important paper colours; restore the report's dark
+   reading surface for both the live page and its image-export clone. */
 .page-report .diagnostic-report-shell {
   background: var(--em-canvas) !important;
   background-image: none !important;

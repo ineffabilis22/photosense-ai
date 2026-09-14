@@ -2735,7 +2735,7 @@ function ReportPage({
     activeRecord?.optimizedImageUrl ? 'ready' : 'generating'
   ));
   const exportTimerRef = useRef<number | null>(null);
-  const reportExportRef = useRef<HTMLDivElement>(null);
+  const reportExportRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
     setReportImageOrientation('portrait');
@@ -2814,10 +2814,11 @@ function ReportPage({
     const exportHost = document.createElement('div');
     exportHost.className = 'page-report report-export-host';
     exportHost.setAttribute('aria-hidden', 'true');
-    const clonedReport = exportNode.cloneNode(true) as HTMLDivElement;
+    const clonedReport = exportNode.cloneNode(true) as HTMLElement;
     clonedReport.removeAttribute('data-report-export');
     clonedReport.classList.add('is-exporting');
     if (mode === 'simple') clonedReport.classList.add('is-simple-export');
+    clonedReport.querySelectorAll<HTMLElement>('[data-report-cover], .report-header-tools, .report-side-nav, .report-action-tooltip, .report-export-menu, .report-retry-button, .report-genre-warning > button, .post-preview-actions, .post-preview-comparison-toggle, .post-preview-status, .post-preview-loading-overlay, .post-preview-success-overlay').forEach((element) => element.remove());
     clonedReport.querySelectorAll<HTMLElement>('[data-report-page-block="true"]').forEach((section) => {
       if (!shouldIncludeReportSection(mode, section.id)) section.remove();
     });
@@ -2852,7 +2853,7 @@ function ReportPage({
         ? Math.max(1, exportImage.naturalWidth / exportImage.clientWidth)
         : 1;
       const canvas = await html2canvas(clonedReport, {
-        backgroundColor: '#eee7d8',
+        backgroundColor: '#0b0b0b',
         logging: false,
         scale: imageScale,
         useCORS: true,
@@ -2908,7 +2909,7 @@ function ReportPage({
         <span className="report-immersive-light" />
         <BackgroundRippleLayer />
       </div>
-      <section className="report-section page-view" aria-labelledby="report-page-title">
+          <section className="report-section page-view" aria-labelledby="report-page-title" ref={reportExportRef}>
           <header className="report-masthead">
             <div className="report-masthead-copy">
               <p className="panel-kicker">摄影复盘</p>
@@ -3051,16 +3052,7 @@ function ReportPage({
                 ))}
               </aside>
 
-              <div className="diagnostic-report" data-report-export="true" ref={reportExportRef}>
-                <div className={`report-export-cover report-source-${displayedSource}`} aria-hidden="true" data-report-cover="true">
-                  <p className="panel-kicker">PhotoSense AI · 摄影复盘</p>
-                  <h2>{activeRecord?.title || '分析报告'}</h2>
-                  <p>{formatReportDate(displayedDate)} · {displayedMedium} · {displayedGenre} · {displayedSkillLevel}</p>
-                  <div>
-                    <strong>{displayedSourceLabel}</strong>
-                    <span>{displayedSourceMessage}</span>
-                  </div>
-                </div>
+              <div className="diagnostic-report" data-report-export="true">
                 <section className={`diagnostic-hero-report is-${reportImageOrientation}-image`} id="report-overview" aria-label="照片诊断标注" data-report-page-block="true">
                 <article className="report-opening-summary">
                   {reportVerdict ? (

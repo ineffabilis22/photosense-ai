@@ -1747,6 +1747,11 @@ test('分析报告仅提供图片导出与文字复制，并可选择简易或�
     assert.match(exportOptions[1].textContent ?? '', /单张长图/);
     assert.doesNotMatch(exportOptions[1].textContent ?? '', /3–4 页|分为/);
     assert.equal(getButtons('分享').length, 0);
+
+    const darkroomCss = await readFile(new URL('../src/theme-darkroom.css', import.meta.url), 'utf8');
+    assert.match(darkroomCss, /\.page-report \.report-export-host > \.report-section\.page-view[\s\S]*?width: 1320px !important[\s\S]*?background: var\(--em-canvas\) !important/);
+    assert.match(darkroomCss, /\.page-report \.report-export-host \.report-header-tools,[\s\S]*?\.report-side-nav,[\s\S]*?\.post-preview-actions,[\s\S]*?display: none !important/);
+    assert.doesNotMatch(darkroomCss, /\.page-report \.diagnostic-report\.is-exporting[\s\S]*?#eee7d8/);
   } finally {
     await cleanupEnvironment(environment);
   }
