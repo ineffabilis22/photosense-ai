@@ -4568,35 +4568,6 @@ dd {
   background: rgba(11, 11, 11, 0.78);
 }
 
-.page-report .post-preview-success-overlay {
-  position: absolute;
-  z-index: 3;
-  top: 50%;
-  left: 50%;
-  display: grid;
-  gap: 0.3rem;
-  width: min(calc(100% - 2rem), 24rem);
-  padding: 0.9rem 1.1rem;
-  transform: translate(-50%, -50%);
-  border-block: 1px solid rgba(241, 232, 215, 0.45);
-  color: #f1e8d7;
-  background: rgba(17, 18, 15, 0.88);
-  font-family: var(--font-ui);
-  text-align: center;
-  pointer-events: none;
-}
-
-.page-report .post-preview-success-overlay strong {
-  font-size: clamp(1rem, 1.5vw, 1.2rem);
-  line-height: 1.35;
-}
-
-.page-report .post-preview-success-overlay span {
-  color: #d5ccbc;
-  font-size: 0.86rem;
-  line-height: 1.55;
-}
-
 @keyframes post-preview-status-pulse {
   0%, 100% { opacity: 0.45; transform: scale(0.82); }
   50% { opacity: 1; transform: scale(1); }
@@ -4677,10 +4648,6 @@ dd {
 }
 
 .diagnostic-report.is-exporting .post-preview-status {
-  display: none;
-}
-
-.diagnostic-report.is-exporting .post-preview-success-overlay {
   display: none;
 }
 
