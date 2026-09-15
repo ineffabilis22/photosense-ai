@@ -548,3 +548,15 @@ final result: passed
 - `npm.cmd run check` passed with 63 tests, TypeScript checks and the production Vite build.
 
 final result: passed
+
+## 2026-09-15 report outcomes, persistence and completion notices
+
+- Analysis failure now replaces the report with a dedicated failure state. It explains that the result was not saved, names server load, network transfer and non-photographic uploads as possible causes, and keeps retry and return actions visible without rendering a sample report.
+- Successful AI analysis uses the user-facing state `报告生成成功` and confirms that analysis is complete. Legacy records remain identified as historical reports; mock/sample records are removed during history restoration and are no longer created after a failed request.
+- Generated simple and detailed report images are stored with their history record. The export dialog offers save and regenerate actions for stored exports, while a first export generates only and never starts a browser download automatically.
+- Optimization and report-export completions use distinct persistent notices. Simultaneous notices form a vertical stack, each has a 44 px close/save target, closing docks the notice to the right edge, and pointer or keyboard focus restores it. The stack is rendered through a document-body portal so route-entry transforms cannot break viewport-fixed positioning.
+- Exact Playwright viewports: 1440 x 1100, 760 x 1000 and 390 x 844 at device scale factor 1. All three reported the requested viewport dimensions, no horizontal overflow and `position: fixed` for the notification stack.
+- Visual evidence: `tmp/qa-report-outcomes-playwright-1440.png`, `tmp/qa-report-outcomes-playwright-760.png` and `tmp/qa-report-outcomes-playwright-390.png`. The fixture intentionally combines the failure surface and both completion notices to stress-test hierarchy and stacking; these independent outcomes are not presented together by the product flow.
+- `npm.cmd run check` passed with 65 tests, TypeScript checks and the production Vite build.
+
+final result: passed
