@@ -23,6 +23,7 @@ test('报告视觉提示只生成无文字背景并接收当前报告内容', ()
   assert.match(prompt, /PhotoSense AI 的简易报告/);
   assert.match(prompt, /严禁生成任何文字、汉字、字母、数字/);
   assert.match(prompt, /准确的中文正文、评分、章节标题和图表会由程序在后续叠加/);
+  assert.match(prompt, /适合 4:5 社交媒体海报/);
   assert.match(prompt, /夜色中的流动光线/);
   assert.match(prompt, /#0b0b0b/);
   assert.match(prompt, /#c86852/);

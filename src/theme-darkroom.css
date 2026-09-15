@@ -6241,7 +6241,14 @@ textarea {
   display: none;
 }
 
-.page-report .report-export-host {
+.page-report .report-share-poster-source {
+  position: fixed;
+  top: 0;
+  left: -20000px;
+  visibility: hidden;
+}
+
+.page-report.report-export-host {
   position: fixed;
   top: 0;
   left: -20000px;
@@ -6254,7 +6261,11 @@ textarea {
   background: var(--em-canvas);
 }
 
-.page-report .report-export-host > .report-section.page-view {
+.page-report.report-export-host.is-simple-export-host {
+  width: 1080px;
+}
+
+.page-report.report-export-host > .report-section.page-view {
   position: relative;
   isolation: isolate;
   box-sizing: border-box;
@@ -6268,12 +6279,12 @@ textarea {
   overflow: hidden;
 }
 
-.page-report .report-export-host > .report-section.page-view > :not(.report-export-artwork) {
+.page-report.report-export-host > .report-section.page-view > :not(.report-export-artwork) {
   position: relative;
   z-index: 1;
 }
 
-.page-report .report-export-host .report-export-artwork {
+.page-report.report-export-host .report-export-artwork {
   position: absolute;
   inset: 0 0 auto;
   z-index: 0;
@@ -6288,40 +6299,40 @@ textarea {
   mask-image: linear-gradient(to bottom, #000 0%, rgba(0, 0, 0, 0.92) 52%, transparent 100%);
 }
 
-.page-report .report-export-host .report-header-tools,
-.page-report .report-export-host .report-side-nav,
-.page-report .report-export-host .report-action-tooltip,
-.page-report .report-export-host .report-export-menu,
-.page-report .report-export-host .report-retry-button,
-.page-report .report-export-host .report-genre-warning > button,
-.page-report .report-export-host .post-preview-actions,
-.page-report .report-export-host .post-preview-comparison-toggle,
-.page-report .report-export-host .post-preview-status,
-.page-report .report-export-host .post-preview-loading-overlay,
-.page-report .report-export-host .post-preview-success-overlay {
+.page-report.report-export-host .report-header-tools,
+.page-report.report-export-host .report-side-nav,
+.page-report.report-export-host .report-action-tooltip,
+.page-report.report-export-host .report-export-menu,
+.page-report.report-export-host .report-retry-button,
+.page-report.report-export-host .report-genre-warning > button,
+.page-report.report-export-host .post-preview-actions,
+.page-report.report-export-host .post-preview-comparison-toggle,
+.page-report.report-export-host .post-preview-status,
+.page-report.report-export-host .post-preview-loading-overlay,
+.page-report.report-export-host .post-preview-success-overlay {
   display: none !important;
 }
 
-.page-report .report-export-host .diagnostic-report-shell {
+.page-report.report-export-host .diagnostic-report-shell {
   display: block !important;
   border: 0 !important;
   background: transparent !important;
   background-image: none !important;
 }
 
-.page-report .report-export-host .diagnostic-report {
+.page-report.report-export-host .diagnostic-report {
   width: 100% !important;
   max-width: none !important;
   background: transparent !important;
   background-image: none !important;
 }
 
-.page-report .report-export-host .diagnostic-image-board {
+.page-report.report-export-host .diagnostic-image-board {
   min-height: 0 !important;
   height: auto !important;
 }
 
-.page-report .report-export-host .diagnostic-image-board img {
+.page-report.report-export-host .diagnostic-image-board img {
   width: 100% !important;
   height: auto !important;
   max-height: none !important;
@@ -6329,11 +6340,11 @@ textarea {
   transform: none !important;
 }
 
-.page-report .report-export-host .diagnostic-report :is(.diagnostic-card, .post-advice-card, .next-shooting-actions li) {
+.page-report.report-export-host .diagnostic-report :is(.diagnostic-card, .post-advice-card, .next-shooting-actions li) {
   box-shadow: none !important;
 }
 
-.page-report .report-export-host .diagnostic-report details > summary::after {
+.page-report.report-export-host .diagnostic-report details > summary::after {
   display: none !important;
 }
 
@@ -6373,19 +6384,37 @@ textarea {
   right: 0;
   z-index: 21;
   display: grid;
-  width: min(330px, 86vw);
-  padding: 8px;
+  width: min(470px, 90vw);
+  padding: 12px;
   border: 1px solid rgba(27, 28, 26, 0.34);
   background: #eee7d8 url('/theme/manual-paper-texture.png') repeat;
   background-size: 720px;
   box-shadow: 0 18px 42px rgba(10, 10, 8, 0.24);
 }
 
+.page-report .report-export-intro {
+  display: grid;
+  gap: 6px;
+  padding: 10px 14px 14px;
+  border-bottom: 1px solid rgba(27, 28, 26, 0.18);
+}
+
+.page-report .report-export-intro strong {
+  font-size: 1rem;
+}
+
+.page-report .report-export-intro p {
+  margin: 0;
+  color: var(--ps-ink-soft);
+  font-size: 0.8rem;
+  line-height: 1.55;
+}
+
 .page-report .report-export-menu button {
   display: grid;
-  gap: 3px;
+  gap: 7px;
   min-height: 0;
-  padding: 12px 14px;
+  padding: 16px 14px;
   border: 0 !important;
   color: var(--ps-ink) !important;
   background: transparent !important;
@@ -6402,27 +6431,14 @@ textarea {
 }
 
 .page-report .report-export-menu strong {
-  font-size: 0.9rem;
+  font-size: 0.98rem;
 }
 
 .page-report .report-export-menu span {
   color: var(--ps-ink-soft);
   font-family: var(--mono);
-  font-size: 0.68rem;
-  line-height: 1.45;
-}
-
-.page-report .report-export-host > .report-section.page-view.is-simple-export .diagnostic-report {
-  gap: 28px !important;
-}
-
-.page-report .report-export-host > .report-section.page-view.is-simple-export .diagnostic-report :is(
-  .photo-specific-summary,
-  .dimension-diagnosis,
-  .next-shooting-actions,
-  .review-context-section
-) {
-  display: none !important;
+  font-size: 0.74rem;
+  line-height: 1.6;
 }
 
 .page-report .report-export-pending {
@@ -6439,18 +6455,364 @@ textarea {
   opacity: 0.48;
 }
 
-.page-report .report-export-host > .report-section.page-view.is-simple-export .diagnostic-hero-report {
-  gap: 28px !important;
+.page-report.report-export-host .report-share-poster-source {
+  position: relative;
+  top: auto;
+  left: auto;
+  visibility: visible;
 }
 
-.page-report .report-export-host > .report-section.page-view.is-simple-export .report-opening-summary {
-  grid-template-columns: minmax(0, 1.25fr) minmax(260px, 0.75fr) !important;
-  gap: 24px !important;
+.report-share-poster {
+  position: relative;
+  isolation: isolate;
+  box-sizing: border-box;
+  display: grid;
+  grid-template-rows: 66px 132px 430px 250px 1fr 38px;
+  gap: 22px;
+  width: 1080px;
+  height: 1350px;
+  padding: 52px 58px 38px;
+  overflow: hidden;
+  color: #f5f5f1;
+  background: #0b0b0b;
+  font-family: var(--font-body);
 }
 
-.page-report .report-export-host > .report-section.page-view.is-simple-export .diagnostic-image-board img {
-  max-height: none !important;
-  object-fit: contain !important;
+.report-share-poster > :not(.report-export-artwork) {
+  position: relative;
+  z-index: 1;
+}
+
+.page-report.report-export-host .report-share-poster .report-export-artwork {
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0.12;
+  object-position: center;
+  -webkit-mask-image: linear-gradient(135deg, #000 0%, rgba(0, 0, 0, 0.6) 42%, transparent 76%);
+  mask-image: linear-gradient(135deg, #000 0%, rgba(0, 0, 0, 0.6) 42%, transparent 76%);
+}
+
+.share-poster-header,
+.share-poster-title,
+.share-poster-footer {
+  display: flex;
+  justify-content: space-between;
+}
+
+.share-poster-header {
+  align-items: flex-start;
+  padding-bottom: 18px;
+  border-bottom: 1px solid rgba(245, 245, 241, 0.24);
+}
+
+.share-poster-header > div {
+  display: grid;
+  gap: 4px;
+}
+
+.share-poster-header strong {
+  font-family: var(--font-editorial);
+  font-size: 28px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.share-poster-header span,
+.share-poster-title p,
+.share-poster-title time,
+.share-poster-footer {
+  color: rgba(245, 245, 241, 0.66);
+  font-family: var(--mono);
+  font-size: 13px;
+  letter-spacing: 0.06em;
+}
+
+.share-poster-title {
+  gap: 24px;
+  align-items: flex-end;
+}
+
+.share-poster-title > div {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.share-poster-title p {
+  margin: 0 0 12px;
+  color: #c86852;
+}
+
+.share-poster-title h2 {
+  display: -webkit-box;
+  max-width: 760px;
+  margin: 0;
+  overflow: hidden;
+  color: #f5f5f1;
+  font-family: var(--font-editorial);
+  font-size: 54px;
+  font-weight: 500;
+  line-height: 1.06;
+  letter-spacing: -0.035em;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.share-poster-title time {
+  flex: 0 0 136px;
+  width: 136px;
+  display: block;
+  box-sizing: border-box;
+  padding-right: 16px;
+  padding-bottom: 8px;
+  overflow: visible;
+  letter-spacing: 0.02em;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.share-poster-comparison {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.share-poster-comparison.is-single {
+  grid-template-columns: 1fr;
+}
+
+.share-poster-comparison figure {
+  display: grid;
+  grid-template-rows: 1fr 38px;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  border: 1px solid rgba(245, 245, 241, 0.22);
+  background: rgba(11, 11, 11, 0.82);
+}
+
+.share-poster-comparison figure > div {
+  display: grid;
+  place-items: center;
+  min-height: 0;
+  overflow: hidden;
+  background: #080808;
+}
+
+.share-poster-comparison img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.share-poster-comparison figcaption {
+  display: flex;
+  align-items: center;
+  padding: 0 14px;
+  border-top: 1px solid rgba(245, 245, 241, 0.18);
+  color: rgba(245, 245, 241, 0.78);
+  font-family: var(--mono);
+  font-size: 13px;
+}
+
+.share-poster-comparison figure:last-child figcaption {
+  color: #df765f;
+}
+
+.share-poster-analysis {
+  display: grid;
+  grid-template-columns: minmax(0, 1.08fr) minmax(0, 0.92fr);
+  gap: 28px;
+  padding: 26px 0;
+  border-top: 1px solid rgba(245, 245, 241, 0.2);
+  border-bottom: 1px solid rgba(245, 245, 241, 0.2);
+}
+
+.share-poster-verdict > span,
+.share-poster-total > span,
+.share-poster-section-title > span {
+  color: #d56a53;
+  font-family: var(--mono);
+  font-size: 13px;
+  letter-spacing: 0.08em;
+}
+
+.share-poster-verdict h3 {
+  display: -webkit-box;
+  margin: 14px 0 10px;
+  overflow: hidden;
+  color: #f5f5f1;
+  font-family: var(--font-editorial);
+  font-size: 33px;
+  font-weight: 500;
+  line-height: 1.13;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.share-poster-verdict p {
+  display: -webkit-box;
+  margin: 0;
+  overflow: hidden;
+  color: rgba(245, 245, 241, 0.72);
+  font-size: 16px;
+  line-height: 1.65;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.share-poster-scores {
+  display: grid;
+  grid-template-columns: 124px 1fr;
+  gap: 20px;
+  padding-left: 26px;
+  border-left: 1px solid rgba(245, 245, 241, 0.18);
+}
+
+.share-poster-total {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.share-poster-total strong {
+  margin-top: 12px;
+  color: #d56a53;
+  font-family: var(--font-editorial);
+  font-size: 72px;
+  font-weight: 500;
+  line-height: 0.9;
+}
+
+.share-poster-total small {
+  margin-left: 4px;
+  color: rgba(245, 245, 241, 0.54);
+  font-family: var(--mono);
+  font-size: 13px;
+}
+
+.share-poster-scores ul,
+.share-poster-advice ol {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.share-poster-scores ul {
+  display: grid;
+  align-content: center;
+  gap: 10px;
+}
+
+.share-poster-scores li {
+  display: grid;
+  grid-template-columns: 72px 1fr 28px;
+  gap: 10px;
+  align-items: center;
+  color: rgba(245, 245, 241, 0.72);
+  font-size: 13px;
+}
+
+.share-poster-scores li i {
+  display: block;
+  height: 4px;
+  overflow: hidden;
+  background: rgba(245, 245, 241, 0.14);
+}
+
+.share-poster-scores li b {
+  display: block;
+  height: 100%;
+  background: #c86852;
+}
+
+.share-poster-scores li strong {
+  color: #f5f5f1;
+  font-family: var(--mono);
+  font-weight: 500;
+  text-align: right;
+}
+
+.share-poster-advice {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  gap: 28px;
+  min-height: 0;
+  padding-top: 4px;
+}
+
+.share-poster-section-title {
+  display: flex;
+  gap: 14px;
+  align-items: baseline;
+}
+
+.share-poster-section-title h3 {
+  margin: 0;
+  color: #f5f5f1;
+  font-family: var(--font-editorial);
+  font-size: 29px;
+  font-weight: 500;
+}
+
+.share-poster-advice ol {
+  display: grid;
+  align-content: start;
+  gap: 13px;
+}
+
+.share-poster-advice li {
+  display: grid;
+  grid-template-columns: 30px 1fr;
+  gap: 12px;
+  align-items: start;
+}
+
+.share-poster-advice li > span {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  color: #0b0b0b;
+  background: #d56a53;
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.share-poster-advice li p {
+  display: -webkit-box;
+  margin: 0;
+  overflow: hidden;
+  color: rgba(245, 245, 241, 0.86);
+  font-size: 15px;
+  line-height: 1.55;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.share-poster-footer {
+  position: absolute;
+  right: 0;
+  bottom: 38px;
+  left: 0;
+  align-items: flex-start;
+  box-sizing: border-box;
+  height: 38px;
+  min-width: 0;
+  padding-right: 16px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(245, 245, 241, 0.2);
+  font-size: 11px;
+}
+
+.share-poster-footer span {
+  display: block;
+  color: rgba(245, 245, 241, 0.78) !important;
+  line-height: 1.2;
+  white-space: nowrap;
 }
 
 @media (max-width: 760px) {
@@ -6744,7 +7106,7 @@ textarea {
   .page-report .report-action-item:first-child .report-export-menu {
     right: auto;
     left: 0;
-    width: min(330px, calc(100vw - 48px));
+    width: min(470px, calc(100vw - 32px));
   }
 
   .page-report .report-header-tools,

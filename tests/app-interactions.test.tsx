@@ -1735,23 +1735,29 @@ test('分析报告仅提供图片导出与文字复制，并可选择简易或�
     assert.doesNotMatch(document.body.textContent ?? '', /已自动保存到此浏览器/);
     assert.equal(getButtons('点评新照片').length, 0);
     assert.equal(getButtons('返回历史记录').length, 0);
-    assert.match(document.querySelector('#export-report-help')?.textContent ?? '', /以图片形式导出报告，可选择简易报告或详细报告/);
+    assert.match(document.querySelector('#export-report-help')?.textContent ?? '', /简易报告适合分享传播，详细报告适合保存复盘/);
     assert.match(document.querySelector('#copy-report-help')?.textContent ?? '', /将文字版报告复制至剪贴板/);
 
     await click(getButton('导出报告图片'));
     const exportOptions = [...document.querySelectorAll<HTMLButtonElement>('.report-export-menu button')];
     assert.equal(exportOptions.length, 2);
+    assert.match(document.querySelector('.report-export-intro')?.textContent ?? '', /根据分享或复盘目的，选择不同的信息密度/);
     assert.match(exportOptions[0].textContent ?? '', /简易报告/);
-    assert.match(exportOptions[0].textContent ?? '', /01评审结论 \+ 03优化建议/);
+    assert.match(exportOptions[0].textContent ?? '', /4:5 社交分享海报/);
+    assert.match(exportOptions[0].textContent ?? '', /前后对比、评审结论、综合与五维评分/);
     assert.match(exportOptions[1].textContent ?? '', /详细报告/);
-    assert.match(exportOptions[1].textContent ?? '', /单张长图/);
+    assert.match(exportOptions[1].textContent ?? '', /完整评审长图/);
+    assert.match(exportOptions[1].textContent ?? '', /保存评测内容并随时复盘/);
     assert.doesNotMatch(exportOptions[1].textContent ?? '', /3–4 页|分为/);
     assert.equal(getButtons('分享').length, 0);
 
     const darkroomCss = await readFile(new URL('../src/theme-darkroom.css', import.meta.url), 'utf8');
-    assert.match(darkroomCss, /\.page-report \.report-export-host > \.report-section\.page-view[\s\S]*?width: 1320px !important[\s\S]*?background: var\(--em-canvas\) !important/);
-    assert.match(darkroomCss, /\.page-report \.report-export-host \.report-export-artwork[\s\S]*?opacity: 0\.22[\s\S]*?mask-image: linear-gradient/);
-    assert.match(darkroomCss, /\.page-report \.report-export-host \.report-header-tools,[\s\S]*?\.report-side-nav,[\s\S]*?\.post-preview-actions,[\s\S]*?display: none !important/);
+    assert.match(darkroomCss, /\.page-report\.report-export-host > \.report-section\.page-view[\s\S]*?width: 1320px !important[\s\S]*?background: var\(--em-canvas\) !important/);
+    assert.match(darkroomCss, /\.page-report\.report-export-host \.report-export-artwork[\s\S]*?opacity: 0\.22[\s\S]*?mask-image: linear-gradient/);
+    assert.match(darkroomCss, /\.page-report\.report-export-host \.report-header-tools,[\s\S]*?\.report-side-nav,[\s\S]*?\.post-preview-actions,[\s\S]*?display: none !important/);
+    assert.match(darkroomCss, /\.report-share-poster[\s\S]*?width: 1080px[\s\S]*?height: 1350px/);
+    assert.ok(document.querySelector('.report-share-poster'));
+    assert.match(document.querySelector('.report-share-poster')?.textContent ?? '', /核心优化建议/);
     assert.doesNotMatch(darkroomCss, /\.page-report \.diagnostic-report\.is-exporting[\s\S]*?#eee7d8/);
   } finally {
     await cleanupEnvironment(environment);

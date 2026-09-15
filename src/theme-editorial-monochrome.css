@@ -1595,6 +1595,14 @@
   color: var(--em-paper-soft) !important;
 }
 
+.page-report .report-export-intro {
+  border-bottom-color: rgba(245, 245, 241, 0.18);
+}
+
+.page-report .report-export-intro p {
+  color: var(--em-paper-soft);
+}
+
 .page-report .report-export-menu button + button {
   border-top-color: rgba(245, 245, 241, 0.18) !important;
 }

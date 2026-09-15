@@ -18,7 +18,7 @@ import type {
 } from './types/report';
 import { filterAndSortHistoryRecords, countRecordsInCurrentMonth, type HistorySort } from './utils/history';
 import { analysisPhases, getAnalysisPhaseStatus, getAnalysisWaitMessage } from './utils/analysis';
-import { createFullReportPart, createPortraitReportPart, normalizeReportArtworkContent, shouldIncludeReportSection, type ReportExportMode } from './utils/report-export';
+import { createFullReportPart, normalizeReportArtworkContent, type ReportExportMode } from './utils/report-export';
 import { mergeAiReportWithFallback } from './utils/report';
 import { formatFileSize, validateImageFile } from './utils/upload';
 import { PostProcessingPreview } from './components/PostProcessingPreview';
@@ -2746,6 +2746,7 @@ function ReportPage({
   ));
   const exportTimerRef = useRef<number | null>(null);
   const reportExportRef = useRef<HTMLElement>(null);
+  const sharePosterRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
     setReportImageOrientation('portrait');
@@ -2808,7 +2809,7 @@ function ReportPage({
     : '优化预览尚未生成完成，完成后才能导出报告图片。';
 
   async function handleExportReport(mode: ReportExportMode) {
-    const exportNode = reportExportRef.current;
+    const exportNode = mode === 'simple' ? sharePosterRef.current : reportExportRef.current;
     if (!exportNode || isExporting) return;
 
     if (isOptimizationPreviewPending) {
@@ -2822,16 +2823,13 @@ function ReportPage({
     setExportStatus('正在生成 AI 报告视觉…');
 
     const exportHost = document.createElement('div');
-    exportHost.className = 'page-report report-export-host';
+    exportHost.className = `page-report report-export-host is-${mode}-export-host`;
     exportHost.setAttribute('aria-hidden', 'true');
     const clonedReport = exportNode.cloneNode(true) as HTMLElement;
+    clonedReport.removeAttribute('aria-hidden');
     clonedReport.removeAttribute('data-report-export');
     clonedReport.classList.add('is-exporting');
-    if (mode === 'simple') clonedReport.classList.add('is-simple-export');
-    clonedReport.querySelectorAll<HTMLElement>('[data-report-cover], .report-header-tools, .report-side-nav, .report-action-tooltip, .report-export-menu, .report-retry-button, .report-genre-warning > button, .post-preview-actions, .post-preview-comparison-toggle, .post-preview-status, .post-preview-loading-overlay, .post-preview-success-overlay').forEach((element) => element.remove());
-    clonedReport.querySelectorAll<HTMLElement>('[data-report-page-block="true"]').forEach((section) => {
-      if (!shouldIncludeReportSection(mode, section.id)) section.remove();
-    });
+    clonedReport.querySelectorAll<HTMLElement>('[data-report-cover], .report-header-tools, .report-side-nav, .report-action-tooltip, .report-export-menu, .report-retry-button, .report-genre-warning > button, .post-preview-actions, .post-preview-comparison-toggle, .post-preview-status, .post-preview-loading-overlay, .post-preview-success-overlay, .report-share-poster-source').forEach((element) => element.remove());
     if (activeRecord?.optimizedImageUrl) {
       const optimizedImage = clonedReport.querySelector<HTMLImageElement>('.post-preview-image img');
       if (optimizedImage) optimizedImage.src = activeRecord.optimizedImageUrl;
@@ -2887,20 +2885,14 @@ function ReportPage({
       await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
 
       const { default: html2canvas } = await import('html2canvas');
-      const exportImage = clonedReport.querySelector<HTMLImageElement>('.diagnostic-image-board img');
-      const imageScale = mode === 'simple' && exportImage?.naturalWidth && exportImage.clientWidth
-        ? Math.max(1, exportImage.naturalWidth / exportImage.clientWidth)
-        : 1;
       const canvas = await html2canvas(clonedReport, {
         backgroundColor: '#0b0b0b',
         logging: false,
-        scale: imageScale,
+        scale: 1,
         useCORS: true,
-        windowWidth: 1440,
+        windowWidth: mode === 'simple' ? 1080 : 1440,
       });
-      const imageParts = mode === 'simple'
-        ? await createPortraitReportPart(canvas)
-        : await createFullReportPart(canvas);
+      const imageParts = await createFullReportPart(canvas);
       if (imageParts.length === 0) {
         throw new Error('报告画布尺寸无效');
       }
@@ -2978,10 +2970,14 @@ function ReportPage({
                     {isExporting ? '正在导出…' : '导出报告图片'}
                   </button>
                   <span className="report-action-tooltip" id="export-report-help" role="tooltip">
-                    以图片形式导出报告，可选择简易报告或详细报告
+                    简易报告适合分享传播，详细报告适合保存复盘
                   </span>
                   {isExportMenuOpen ? (
                     <div className="report-export-menu" role="menu" aria-label="选择报告图片类型">
+                      <div className="report-export-intro">
+                        <strong>选择导出方式</strong>
+                        <p>根据分享或复盘目的，选择不同的信息密度。</p>
+                      </div>
                       {isOptimizationPreviewPending ? (
                         <p className="report-export-pending" role="status">
                           {optimizationPreviewMessage}
@@ -2995,7 +2991,7 @@ function ReportPage({
                         onClick={() => void handleExportReport('simple')}
                       >
                         <strong>简易报告</strong>
-                        <span>单张竖版图 · 01评审结论 + 03优化建议</span>
+                        <span>4:5 社交分享海报。精选前后对比、评审结论、综合与五维评分，以及三条核心优化建议，适合发布和传播。</span>
                       </button>
                       <button
                         type="button"
@@ -3005,7 +3001,7 @@ function ReportPage({
                         onClick={() => void handleExportReport('detailed')}
                       >
                         <strong>详细报告</strong>
-                        <span>完整内容 · 单张长图</span>
+                        <span>完整评审长图。保留画面观察、五维诊断、优化预览和评审依据，适合保存评测内容并随时复盘。</span>
                       </button>
                     </div>
                   ) : null}
@@ -3246,10 +3242,114 @@ function ReportPage({
               </div>
             </div>
           ) : null}
+
+          {displayedReport && reportVerdict && scoreSummary ? (
+            <SimpleReportPoster
+              date={formatReportDate(displayedDate)}
+              genre={displayedGenre}
+              medium={displayedMedium}
+              optimizedImageUrl={displayedSource === 'ai' ? activeRecord?.optimizedImageUrl : undefined}
+              originalImageUrl={displayedImageUrl}
+              ref={sharePosterRef}
+              report={displayedReport}
+              skillLevel={displayedSkillLevel}
+              title={activeRecord?.title || '分析报告'}
+              verdict={reportVerdict}
+            />
+          ) : null}
       </section>
     </main>
   );
 }
+
+const SimpleReportPoster = React.forwardRef<HTMLElement, {
+  date: string;
+  genre: Genre;
+  medium: Medium;
+  optimizedImageUrl?: string;
+  originalImageUrl: string;
+  report: Report;
+  skillLevel: SkillLevel;
+  title: string;
+  verdict: ReportVerdict;
+}>(function SimpleReportPoster({ date, genre, medium, optimizedImageUrl, originalImageUrl, report, skillLevel, title, verdict }, ref) {
+  const scoreSummary = getScoreSummary(report);
+  const advice = (report.optimizationPlan?.items.map((item) => item.instruction) ?? report.suggestions).slice(0, 3);
+  const hasComparison = Boolean(optimizedImageUrl && optimizedImageUrl !== originalImageUrl);
+
+  return (
+    <article className="report-share-poster report-share-poster-source" ref={ref} aria-hidden="true">
+      <header className="share-poster-header">
+        <div>
+          <strong>PhotoSense AI</strong>
+          <span>摄影评审与优化建议</span>
+        </div>
+        <span>SHARE REPORT · 01</span>
+      </header>
+
+      <section className="share-poster-title">
+        <div>
+          <p>{medium} · {genre} · {skillLevel}</p>
+          <h2>{title}</h2>
+        </div>
+        <time>{date}</time>
+      </section>
+
+      <section className={`share-poster-comparison${hasComparison ? '' : ' is-single'}`} aria-label={hasComparison ? '修改前与优化后对比' : '报告照片'}>
+        <figure>
+          <div><img src={originalImageUrl} alt="修改前照片" /></div>
+          <figcaption>{hasComparison ? '修改前' : '报告照片'}</figcaption>
+        </figure>
+        {hasComparison ? (
+          <figure>
+            <div><img src={optimizedImageUrl} alt="优化后预览" /></div>
+            <figcaption>优化预览</figcaption>
+          </figure>
+        ) : null}
+      </section>
+
+      <section className="share-poster-analysis">
+        <div className="share-poster-verdict">
+          <span>评审结论</span>
+          <h3>{verdict.title}</h3>
+          <p>{verdict.summary}</p>
+        </div>
+        <div className="share-poster-scores" aria-label={`综合评分 ${scoreSummary.overall}`}>
+          <div className="share-poster-total">
+            <span>综合评分</span>
+            <strong>{scoreSummary.overall}<small>/100</small></strong>
+          </div>
+          <ul>
+            {scoreSummary.entries.map((entry) => (
+              <li key={entry.name}>
+                <span>{entry.name}</span>
+                <i><b style={{ width: `${entry.score}%` }} /></i>
+                <strong>{entry.score}</strong>
+              </li>
+            ))}
+          </ul>
+        </div>
+      </section>
+
+      <section className="share-poster-advice">
+        <div className="share-poster-section-title">
+          <span>03</span>
+          <h3>核心优化建议</h3>
+        </div>
+        <ol>
+          {advice.map((item, index) => (
+            <li key={`${index}-${item}`}><span>{index + 1}</span><p>{item}</p></li>
+          ))}
+        </ol>
+      </section>
+
+      <footer className="share-poster-footer">
+        <span>看懂问题，也看见更好的可能。</span>
+        <span>Photosense AI · Made by Yune · 2026</span>
+      </footer>
+    </article>
+  );
+});
 
 type HistoryPageProps = {
   historyRecords: HistoryRecord[];
