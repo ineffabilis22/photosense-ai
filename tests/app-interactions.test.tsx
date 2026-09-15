@@ -1755,7 +1755,12 @@ test('分析报告仅提供图片导出与文字复制，并可选择简易或�
     assert.match(darkroomCss, /\.page-report\.report-export-host > \.report-section\.page-view[\s\S]*?width: 1320px !important[\s\S]*?background: var\(--em-canvas\) !important/);
     assert.match(darkroomCss, /\.page-report\.report-export-host \.report-export-artwork[\s\S]*?opacity: 0\.22[\s\S]*?mask-image: linear-gradient/);
     assert.match(darkroomCss, /\.page-report\.report-export-host \.report-header-tools,[\s\S]*?\.report-side-nav,[\s\S]*?\.post-preview-actions,[\s\S]*?display: none !important/);
-    assert.match(darkroomCss, /\.report-share-poster[\s\S]*?width: 1080px[\s\S]*?height: 1350px/);
+    assert.match(darkroomCss, /\.report-share-poster[\s\S]*?width: 1080px[\s\S]*?height: auto[\s\S]*?min-height: 1350px/);
+    assert.match(darkroomCss, /\.report-share-poster[\s\S]*?grid-template-rows:[^;]*?minmax\(430px, auto\)/);
+    assert.match(darkroomCss, /\.report-share-poster[\s\S]*?grid-template-rows:[^;]*?minmax\(190px, 1fr\) 38px/);
+    assert.match(darkroomCss, /\.share-poster-comparison figure[\s\S]*?grid-template-rows: minmax\(392px, auto\) 38px/);
+    assert.match(darkroomCss, /\.share-poster-comparison img[\s\S]*?width: 100%[\s\S]*?height: auto !important[\s\S]*?object-fit: contain !important/);
+    assert.match(darkroomCss, /\.share-poster-footer[\s\S]*?position: relative[\s\S]*?bottom: auto/);
     assert.ok(document.querySelector('.report-share-poster'));
     assert.match(document.querySelector('.report-share-poster')?.textContent ?? '', /核心优化建议/);
     assert.doesNotMatch(darkroomCss, /\.page-report \.diagnostic-report\.is-exporting[\s\S]*?#eee7d8/);

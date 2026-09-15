@@ -530,3 +530,13 @@ final result: passed
 
 - Removed `雾湖栖鸟`, `雪峰灯火` and `夜色街角` from the homepage showcase data so they no longer appear in the moving film strip or its duplicated loop items.
 - Existing report/history data and source photo assets were not removed; this is limited to the homepage's curated example set.
+
+## 2026-09-15 share-report full-image priority
+
+- The simple share report now treats complete photo display as the first constraint for both portrait and landscape images. Images use their intrinsic ratio at full frame width with `object-fit: contain`; no report-photo crop or filter is introduced.
+- The existing 392 px image area remains the minimum for landscape work. Portrait work expands the comparison row and overall report height while preserving the title, analysis, score and advice spacing.
+- The footer participates in the report grid so the expanded portrait layout cannot overlap the final recommendation.
+- Visual evidence: `tmp/qa-share-poster-portrait-complete-v2.png` and `tmp/qa-share-poster-landscape-complete-v3.png`.
+- `npm.cmd run check` passed with 63 tests, TypeScript checks and the production Vite build.
+
+final result: passed
