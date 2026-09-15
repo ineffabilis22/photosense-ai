@@ -142,6 +142,7 @@ export type HistoryRecord = {
   title: string;
   imageUrl: string;
   optimizedImageUrl?: string;
+  reportExportImages?: Partial<Record<'simple' | 'detailed', string>>;
   fileName: string;
   medium: Medium;
   subject: Genre;

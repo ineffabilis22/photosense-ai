@@ -1,5 +1,5 @@
 import React, { ChangeEvent, DragEvent, MouseEvent, RefObject, useEffect, useMemo, useRef, useState } from 'react';
-import { flushSync } from 'react-dom';
+import { createPortal, flushSync } from 'react-dom';
 import type {
   AnalysisState,
   Genre,
@@ -1009,6 +1009,56 @@ async function compressOptimizedImageForHistory(imageUrl: string): Promise<strin
   }
 }
 
+async function compressReportExportForHistory(imageUrl: string): Promise<string> {
+  if (!imageUrl.startsWith('data:image/') || imageUrl.length < 600_000) return imageUrl;
+
+  try {
+    const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const nextImage = new Image();
+      nextImage.onload = () => resolve(nextImage);
+      nextImage.onerror = () => reject(new Error('无法读取报告图片。'));
+      nextImage.src = imageUrl;
+    });
+    const maxWidth = 1440;
+    const scale = Math.min(1, maxWidth / image.naturalWidth);
+    const canvas = document.createElement('canvas');
+    const context = canvas.getContext('2d');
+    if (!context) return imageUrl;
+
+    canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+    canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+    context.drawImage(image, 0, 0, canvas.width, canvas.height);
+    const compressedImageUrl = canvas.toDataURL('image/webp', 0.82);
+    return compressedImageUrl.length < imageUrl.length ? compressedImageUrl : imageUrl;
+  } catch {
+    return imageUrl;
+  }
+}
+
+function readBlobAsDataUrl(blob: Blob) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new window.FileReader();
+    reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : '');
+    reader.onerror = () => reject(new Error('无法保存生成的报告图片。'));
+    reader.readAsDataURL(blob);
+  });
+}
+
+function getImageFileExtension(imageUrl: string, fallback = 'png') {
+  const match = imageUrl.match(/^data:image\/([a-z0-9.+-]+);/i);
+  if (!match) return fallback;
+  return match[1] === 'jpeg' ? 'jpg' : match[1];
+}
+
+function downloadImage(imageUrl: string, fileName: string) {
+  const downloadLink = document.createElement('a');
+  downloadLink.href = imageUrl;
+  downloadLink.download = fileName;
+  document.body.appendChild(downloadLink);
+  downloadLink.click();
+  downloadLink.remove();
+}
+
 async function requestAiReport({
   fallbackReport,
   fileName,
@@ -1200,7 +1250,10 @@ function loadStoredHistoryRecords(): HistoryRecord[] {
 
     const shouldCleanKnownTestRecord = window.localStorage.getItem(TEST_HISTORY_CLEANUP_VERSION_KEY) !== '1';
     const normalizedRecords = parsedValue
-      .filter((record) => record && typeof record.id === 'string' && typeof record.report === 'object')
+      .filter((record) => record
+        && typeof record.id === 'string'
+        && typeof record.report === 'object'
+        && record.reportSource !== 'mock')
       .map((record) => {
         const medium = mediums.includes(record.medium) ? record.medium : '数码摄影';
         const genre = genres.includes(record.genre ?? record.subject) ? record.genre ?? record.subject : '街头摄影';
@@ -1228,6 +1281,12 @@ function loadStoredHistoryRecords(): HistoryRecord[] {
           title: normalizeHistoryTitle(record.title, genre, createdAt),
           imageUrl: getPersistedImageUrl(record.imageUrl),
           optimizedImageUrl: getPersistedImageUrl(record.optimizedImageUrl) || undefined,
+          reportExportImages: record.reportExportImages && typeof record.reportExportImages === 'object'
+            ? {
+              simple: getPersistedImageUrl(record.reportExportImages.simple) || undefined,
+              detailed: getPersistedImageUrl(record.reportExportImages.detailed) || undefined,
+            }
+            : undefined,
           fileName: typeof record.fileName === 'string' ? record.fileName : '未命名照片',
           medium,
           subject: genre,
@@ -1400,7 +1459,7 @@ function App() {
     window.setTimeout(() => {
       const shouldReduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
       window.scrollTo({ top: 0, behavior: shouldReduceMotion ? 'auto' : 'smooth' });
-      document.querySelector<HTMLElement>('main')?.focus({ preventScroll: true });
+      document.querySelector<HTMLElement>('main:not([hidden])')?.focus({ preventScroll: true });
     }, 0);
   }
 
@@ -1491,8 +1550,6 @@ function App() {
 
     const fallbackReport = createMockReport(selectedGenre, skillLevel, selectedMedium);
     let nextReport = fallbackReport;
-    let reportSource: ReportSource = 'ai';
-    let analysisError: string | undefined;
     let imageDataUrl = '';
 
     try {
@@ -1554,7 +1611,7 @@ function App() {
         return;
       }
 
-      setAnalysisState({ kind: 'ai', message: '这份结果已根据当前照片生成。' });
+      setAnalysisState({ kind: 'ai', message: '报告生成成功。AI 分析已完成，请查看结果。' });
     } catch (error) {
       window.clearTimeout(phaseTimerId);
 
@@ -1565,13 +1622,19 @@ function App() {
         return;
       }
 
-      console.warn('AI request failed, using mock fallback', error);
-      reportSource = 'mock';
-      analysisError = getErrorMessage(error, '暂时无法生成专属结果。');
+      console.warn('AI report request failed', error);
+      if (imageUrl.startsWith('blob:')) URL.revokeObjectURL(imageUrl);
+      setImageUrl(imageDataUrl);
+      setReport(null);
+      setActiveRecord(null);
+      setIsAnalyzing(false);
       setAnalysisState({
-        kind: 'mock',
-        message: '暂时无法生成专属结果，当前展示一份示例结果。',
+        kind: 'error',
+        message: getErrorMessage(error, '暂时无法完成这次照片分析，请稍后重试。'),
       });
+      if (analysisAbortRef.current === requestController) analysisAbortRef.current = null;
+      goToPage('report');
+      return;
     }
 
     const now = new Date();
@@ -1600,9 +1663,8 @@ function App() {
       dateTime,
       createdAt,
       report: nextReport,
-      reportSource,
+      reportSource: 'ai',
       scoreVersion: nextReport.scoreVersion ?? CURRENT_SCORE_VERSION,
-      analysisError,
       overallScore: getOverallScore(nextReport),
       tags: [...getHistoryTags(selectedGenre, skillLevel, selectedMedium), ...getProblemTags(nextReport).slice(0, 1)],
       summary: getReportImprovementPriority(nextReport) === 'none' ? reportVerdict.summary : coreDiagnosis.direction,
@@ -1628,10 +1690,6 @@ function App() {
   }
 
   function handleRetryAnalysis() {
-    if (activeRecord?.reportSource === 'mock') {
-      setHistoryRecords((records) => records.filter((record) => record.id !== activeRecord.id));
-      setActiveRecord(null);
-    }
     goToPage('review');
     window.setTimeout(() => void handleAnalyze(), 0);
   }
@@ -1750,6 +1808,20 @@ function App() {
     ));
   }
 
+  async function handleSaveReportExport(recordId: string, mode: ReportExportMode, reportImageUrl: string) {
+    const persistedImageUrl = await compressReportExportForHistory(reportImageUrl);
+    setHistoryRecords((records) => records.map((record) => (
+      record.id === recordId
+        ? { ...record, reportExportImages: { ...record.reportExportImages, [mode]: persistedImageUrl } }
+        : record
+    )));
+    setActiveRecord((record) => (
+      record?.id === recordId
+        ? { ...record, reportExportImages: { ...record.reportExportImages, [mode]: persistedImageUrl } }
+        : record
+    ));
+  }
+
   return (
     <div className={`app-shell app-shell-${currentPage}${isPageEntering ? ' is-page-entering' : ''}`}>
       <a className="skip-link" href="#main-content">跳到主要内容</a>
@@ -1842,19 +1914,21 @@ function App() {
         />
       )}
 
-      {currentPage === 'report' && (
+      {(currentPage === 'report' || Boolean(report || activeRecord)) && (
         <ReportPage
           activeRecord={activeRecord}
           analysisState={analysisState}
-          canRetryAnalysis={Boolean(uploadedFile && activeRecord?.imageUrl === imageUrl)}
+          canRetryAnalysis={Boolean(uploadedFile && imageUrl)}
           copyStatus={copyStatus}
           currentDate={currentDate}
           fileName={fileName}
           imageUrl={imageUrl}
           isAnalyzing={isAnalyzing}
+          isPageVisible={currentPage === 'report'}
           onCopyReport={handleCopyReport}
           onRetryAnalysis={handleRetryAnalysis}
           onSaveOptimizedImage={handleSaveOptimizedImage}
+          onSaveReportExport={handleSaveReportExport}
           onStartReview={() => goToPage('review')}
           report={report}
           selectedGenre={selectedGenre}
@@ -2664,9 +2738,11 @@ type ReportPageProps = {
   fileName: string;
   imageUrl: string;
   isAnalyzing: boolean;
+  isPageVisible: boolean;
   onCopyReport: () => void;
   onRetryAnalysis: () => void;
   onSaveOptimizedImage: (recordId: string, optimizedImageUrl: string) => Promise<void>;
+  onSaveReportExport: (recordId: string, mode: ReportExportMode, reportImageUrl: string) => Promise<void>;
   onStartReview: () => void;
   report: Report | null;
   selectedGenre: Genre;
@@ -2681,6 +2757,16 @@ const reportNavItems = [
   { id: 'report-context', label: '评审依据' },
 ];
 
+type CompletionNotice = {
+  id: 'optimization' | 'report';
+  kind: 'optimization' | 'report';
+  title: string;
+  message: string;
+  imageUrl: string;
+  fileName: string;
+  docked: boolean;
+};
+
 function ReportPage({
   activeRecord,
   analysisState,
@@ -2690,9 +2776,11 @@ function ReportPage({
   fileName,
   imageUrl,
   isAnalyzing,
+  isPageVisible,
   onCopyReport,
   onRetryAnalysis,
   onSaveOptimizedImage,
+  onSaveReportExport,
   onStartReview,
   report,
   selectedGenre,
@@ -2707,12 +2795,10 @@ function ReportPage({
   const displayedSkillLevel = activeRecord?.skillLevel ?? skillLevel;
   const displayedDate = activeRecord?.date ?? currentDate;
   const displayedSource: ReportSource = activeRecord?.reportSource ?? (analysisState.kind === 'mock' ? 'mock' : analysisState.kind === 'ai' ? 'ai' : 'legacy');
-  const displayedSourceLabel = displayedSource === 'ai' ? '实时结果' : displayedSource === 'mock' ? '示例结果' : '历史记录';
+  const displayedSourceLabel = displayedSource === 'ai' ? '报告生成成功' : '历史报告';
   const displayedSourceMessage = displayedSource === 'ai'
-    ? '这份结果根据当前照片与所选摄影语境生成。'
-    : displayedSource === 'mock'
-      ? '暂时无法生成这张照片的专属结果，以下内容仅用于展示功能，不代表这张照片的真实分析。'
-      : '这条记录较早，建议重新生成一次结果。';
+    ? 'AI 分析已完成，请查看下方结果。'
+    : '这是一份较早保存的报告；如需更新分析，可以返回开始点评并重新生成。';
   const visibleReportNavItems = displayedSource === 'ai'
     ? reportNavItems
     : reportNavItems.filter((item) => item.id !== 'report-post-processing');
@@ -2740,11 +2826,12 @@ function ReportPage({
   const [reportImageOrientation, setReportImageOrientation] = useState<'portrait' | 'landscape'>('portrait');
   const [exportStatus, setExportStatus] = useState('');
   const [isExporting, setIsExporting] = useState(false);
+  const [exportingMode, setExportingMode] = useState<ReportExportMode | null>(null);
   const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
+  const [completionNotices, setCompletionNotices] = useState<CompletionNotice[]>([]);
   const [optimizationPreviewStatus, setOptimizationPreviewStatus] = useState<'not-required' | 'generating' | 'ready' | 'error'>(() => (
     activeRecord?.optimizedImageUrl ? 'ready' : 'generating'
   ));
-  const exportTimerRef = useRef<number | null>(null);
   const reportExportRef = useRef<HTMLElement>(null);
   const sharePosterRef = useRef<HTMLElement>(null);
 
@@ -2792,21 +2879,49 @@ function ReportPage({
     };
   }, [displayedReport, displayedSource]);
 
-  useEffect(() => {
-    return () => {
-      if (exportTimerRef.current) {
-        window.clearTimeout(exportTimerRef.current);
-      }
-    };
-  }, []);
-
   const hasOptimizationPreview = displayedSource === 'ai'
     && Boolean(displayedImageUrl)
     && Boolean(displayedReport?.optimizationPlan?.items.length);
   const isOptimizationPreviewPending = hasOptimizationPreview && optimizationPreviewStatus !== 'ready';
+  const savedSimpleReport = activeRecord?.reportExportImages?.simple;
+  const savedDetailedReport = activeRecord?.reportExportImages?.detailed;
   const optimizationPreviewMessage = optimizationPreviewStatus === 'error'
     ? '优化预览未生成，请先重新生成后再导出。'
     : '优化预览尚未生成完成，完成后才能导出报告图片。';
+
+  const safeReportName = (activeRecord?.title || displayedFileName || '分析报告')
+    .replace(/[<>:"/\\|?*\u0000-\u001F]/g, '-')
+    .slice(0, 80) || '分析报告';
+
+  function getReportExportFileName(mode: ReportExportMode, imageUrl: string) {
+    const label = mode === 'simple' ? '简易报告' : '详细报告';
+    return `PhotoSense-AI-${safeReportName}-${label}.${getImageFileExtension(imageUrl)}`;
+  }
+
+  function upsertCompletionNotice(notice: CompletionNotice) {
+    setCompletionNotices((notices) => [
+      ...notices.filter((item) => item.id !== notice.id),
+      notice,
+    ]);
+  }
+
+  function handleOptimizationCompleted(optimizedImageUrl: string) {
+    upsertCompletionNotice({
+      id: 'optimization',
+      kind: 'optimization',
+      title: '优化图片生成完成',
+      message: '优化后的照片已随本次报告保存，可以立即导出。',
+      imageUrl: optimizedImageUrl,
+      fileName: `PhotoSense-AI-${safeReportName}-优化图片.${getImageFileExtension(optimizedImageUrl)}`,
+      docked: false,
+    });
+  }
+
+  function setCompletionNoticeDocked(id: CompletionNotice['id'], docked: boolean) {
+    setCompletionNotices((notices) => notices.map((notice) => (
+      notice.id === id ? { ...notice, docked } : notice
+    )));
+  }
 
   async function handleExportReport(mode: ReportExportMode) {
     const exportNode = mode === 'simple' ? sharePosterRef.current : reportExportRef.current;
@@ -2818,9 +2933,10 @@ function ReportPage({
       return;
     }
 
-    setIsExportMenuOpen(false);
+    setIsExportMenuOpen(true);
     setIsExporting(true);
-    setExportStatus('正在生成 AI 报告视觉…');
+    setExportingMode(mode);
+    setExportStatus('报告生成中，请稍后…');
 
     const exportHost = document.createElement('div');
     exportHost.className = `page-report report-export-host is-${mode}-export-host`;
@@ -2829,7 +2945,7 @@ function ReportPage({
     clonedReport.removeAttribute('aria-hidden');
     clonedReport.removeAttribute('data-report-export');
     clonedReport.classList.add('is-exporting');
-    clonedReport.querySelectorAll<HTMLElement>('[data-report-cover], .report-header-tools, .report-side-nav, .report-action-tooltip, .report-export-menu, .report-retry-button, .report-genre-warning > button, .post-preview-actions, .post-preview-comparison-toggle, .post-preview-status, .post-preview-loading-overlay, .post-preview-success-overlay, .report-share-poster-source').forEach((element) => element.remove());
+    clonedReport.querySelectorAll<HTMLElement>('[data-report-cover], .report-header-tools, .report-side-nav, .report-action-tooltip, .report-export-menu, .report-retry-button, .report-genre-warning > button, .post-preview-actions, .post-preview-comparison-toggle, .post-preview-status, .post-preview-loading-overlay, .report-share-poster-source').forEach((element) => element.remove());
     if (activeRecord?.optimizedImageUrl) {
       const optimizedImage = clonedReport.querySelector<HTMLImageElement>('.post-preview-image img');
       if (optimizedImage) optimizedImage.src = activeRecord.optimizedImageUrl;
@@ -2868,7 +2984,7 @@ function ReportPage({
         artworkImage.src = artworkData.artworkUrl;
         clonedReport.prepend(artworkImage);
       }
-      setExportStatus(`正在排版${mode === 'simple' ? '简易' : '详细'}报告…`);
+      setExportStatus('报告生成中，请稍后…');
 
       await document.fonts?.ready;
       await Promise.all([...clonedReport.querySelectorAll('img')].map(async (image) => {
@@ -2896,26 +3012,23 @@ function ReportPage({
       if (imageParts.length === 0) {
         throw new Error('报告画布尺寸无效');
       }
-      const safeName = (activeRecord?.title || displayedFileName || '分析报告')
-        .replace(/[<>:"/\\|?*\u0000-\u001F]/g, '-')
-        .slice(0, 80) || '分析报告';
-
-      for (const [index, imageBlob] of imageParts.entries()) {
-        const downloadUrl = URL.createObjectURL(imageBlob);
-        const downloadLink = document.createElement('a');
-        downloadLink.href = downloadUrl;
-        downloadLink.download = mode === 'simple'
-          ? `PhotoSense-AI-${safeName}-简易报告.png`
-          : `PhotoSense-AI-${safeName}-详细报告.png`;
-        document.body.appendChild(downloadLink);
-        setExportStatus(`正在下载第 ${index + 1}/${imageParts.length} 张报告图片…`);
-        downloadLink.click();
-        downloadLink.remove();
-        window.setTimeout(() => URL.revokeObjectURL(downloadUrl), 30000);
-        await new Promise<void>((resolve) => window.setTimeout(resolve, 120));
+      const reportImageUrl = await readBlobAsDataUrl(imageParts[0]);
+      if (!reportImageUrl) throw new Error('报告图片内容为空');
+      if (activeRecord) {
+        await onSaveReportExport(activeRecord.id, mode, reportImageUrl);
       }
-
-      setExportStatus(`已导出 ${imageParts.length} 张报告图片`);
+      const modeLabel = mode === 'simple' ? '简易报告' : '详细报告';
+      const fileName = getReportExportFileName(mode, reportImageUrl);
+      upsertCompletionNotice({
+        id: 'report',
+        kind: 'report',
+        title: '导出报告生成完成',
+        message: `${modeLabel}已随本次评价报告保存，请选择是否保存到本地。`,
+        imageUrl: reportImageUrl,
+        fileName,
+        docked: false,
+      });
+      setExportStatus(`${modeLabel}已生成，可从此窗口或右下角提醒保存。`);
     } catch (error) {
       console.error('Report export failed', error);
       setExportStatus(error instanceof Error && /报告视觉/.test(error.message)
@@ -2924,33 +3037,36 @@ function ReportPage({
     } finally {
       exportHost.remove();
       setIsExporting(false);
+      setExportingMode(null);
     }
 
-    if (exportTimerRef.current) {
-      window.clearTimeout(exportTimerRef.current);
-    }
-
-    exportTimerRef.current = window.setTimeout(() => {
-      setExportStatus('');
-    }, 2200);
   }
 
   return (
-    <main className="page-main page-report" id="main-content" tabIndex={-1}>
-      <div className="report-immersive-background" aria-hidden="true">
-        {displayedImageUrl ? <img src={displayedImageUrl} alt="" /> : null}
-        <span className="report-immersive-light" />
-        <BackgroundRippleLayer />
-      </div>
+    <main
+      className="page-main page-report"
+      id={isPageVisible ? 'main-content' : undefined}
+      hidden={!isPageVisible}
+      tabIndex={-1}
+    >
+      {isPageVisible ? (
+        <div className="report-immersive-background" aria-hidden="true">
+          {displayedImageUrl ? <img src={displayedImageUrl} alt="" /> : null}
+          <span className="report-immersive-light" />
+          <BackgroundRippleLayer />
+        </div>
+      ) : null}
           <section className="report-section page-view" aria-labelledby="report-page-title" ref={reportExportRef}>
           <header className="report-masthead">
             <div className="report-masthead-copy">
               <p className="panel-kicker">摄影复盘</p>
-              <h1 id="report-page-title">{activeRecord?.title || '分析报告'}</h1>
+              <h1 id="report-page-title">{analysisState.kind === 'error' && !displayedReport ? '报告生成失败' : activeRecord?.title || '分析报告'}</h1>
               <p>
                 {displayedReport
                   ? `${formatReportDate(displayedDate)} · ${displayedMedium} · ${displayedGenre} · ${displayedSkillLevel}`
-                  : '完成一次照片点评后，报告会在这里集中展示。'}
+                  : analysisState.kind === 'error'
+                    ? '本次结果未保存，你可以检查后重新生成。'
+                    : '完成一次照片点评后，报告会在这里集中展示。'}
               </p>
             </div>
             {displayedReport ? (
@@ -2967,13 +3083,13 @@ function ReportPage({
                     disabled={isExporting}
                     onClick={() => setIsExportMenuOpen((isOpen) => !isOpen)}
                   >
-                    {isExporting ? '正在导出…' : '导出报告图片'}
+                    {isExporting ? '报告生成中…' : '导出报告图片'}
                   </button>
                   <span className="report-action-tooltip" id="export-report-help" role="tooltip">
                     简易报告适合分享传播，详细报告适合保存复盘
                   </span>
                   {isExportMenuOpen ? (
-                    <div className="report-export-menu" role="menu" aria-label="选择报告图片类型">
+                    <div className="report-export-menu" role="dialog" aria-label="生成或保存报告图片">
                       <div className="report-export-intro">
                         <strong>选择导出方式</strong>
                         <p>根据分享或复盘目的，选择不同的信息密度。</p>
@@ -2983,26 +3099,48 @@ function ReportPage({
                           {optimizationPreviewMessage}
                         </p>
                       ) : null}
-                      <button
-                        type="button"
-                        role="menuitem"
-                        disabled={isOptimizationPreviewPending}
-                        title={isOptimizationPreviewPending ? '请先等待优化预览完成' : undefined}
-                        onClick={() => void handleExportReport('simple')}
-                      >
-                        <strong>简易报告</strong>
-                        <span>4:5 社交分享海报。精选前后对比、评审结论、综合与五维评分，以及三条核心优化建议，适合发布和传播。</span>
-                      </button>
-                      <button
-                        type="button"
-                        role="menuitem"
-                        disabled={isOptimizationPreviewPending}
-                        title={isOptimizationPreviewPending ? '请先等待优化预览完成' : undefined}
-                        onClick={() => void handleExportReport('detailed')}
-                      >
-                        <strong>详细报告</strong>
-                        <span>完整评审长图。保留画面观察、五维诊断、优化预览和评审依据，适合保存评测内容并随时复盘。</span>
-                      </button>
+                      <div className="report-export-option" role="group" aria-label="简易报告">
+                        <div>
+                          <strong>简易报告</strong>
+                          <span>4:5 社交分享海报。精选前后对比、评审结论、综合与五维评分，以及三条核心优化建议，适合发布和传播。</span>
+                        </div>
+                        <div className="report-export-option-actions">
+                          {savedSimpleReport ? (
+                            <button type="button" onClick={() => downloadImage(savedSimpleReport, getReportExportFileName('simple', savedSimpleReport))}>
+                              保存简易报告
+                            </button>
+                          ) : null}
+                          <button
+                            type="button"
+                            disabled={isExporting || isOptimizationPreviewPending}
+                            title={isOptimizationPreviewPending ? '请先等待优化预览完成' : undefined}
+                            onClick={() => void handleExportReport('simple')}
+                          >
+                            {exportingMode === 'simple' ? '报告生成中…' : savedSimpleReport ? '重新生成简易报告' : '生成简易报告'}
+                          </button>
+                        </div>
+                      </div>
+                      <div className="report-export-option" role="group" aria-label="详细报告">
+                        <div>
+                          <strong>详细报告</strong>
+                          <span>完整评审长图。保留画面观察、五维诊断、优化预览和评审依据，适合保存评测内容并随时复盘。</span>
+                        </div>
+                        <div className="report-export-option-actions">
+                          {savedDetailedReport ? (
+                            <button type="button" onClick={() => downloadImage(savedDetailedReport, getReportExportFileName('detailed', savedDetailedReport))}>
+                              保存详细报告
+                            </button>
+                          ) : null}
+                          <button
+                            type="button"
+                            disabled={isExporting || isOptimizationPreviewPending}
+                            title={isOptimizationPreviewPending ? '请先等待优化预览完成' : undefined}
+                            onClick={() => void handleExportReport('detailed')}
+                          >
+                            {exportingMode === 'detailed' ? '报告生成中…' : savedDetailedReport ? '重新生成详细报告' : '生成详细报告'}
+                          </button>
+                        </div>
+                      </div>
                     </div>
                   ) : null}
                 </div>
@@ -3026,18 +3164,13 @@ function ReportPage({
           </header>
 
           {displayedReport ? (
-            <div className={`report-source-notice report-source-${displayedSource}`} role={displayedSource === 'mock' ? 'alert' : 'status'}>
+            <div className={`report-source-notice report-source-${displayedSource}`} role="status">
               <div>
                 <strong>
                   {displayedSourceLabel}
                 </strong>
                 <span>{displayedSourceMessage}</span>
               </div>
-              {displayedSource === 'mock' && canRetryAnalysis ? (
-                <button className="report-retry-button" type="button" onClick={onRetryAnalysis}>
-                  重新生成结果
-                </button>
-              ) : null}
             </div>
           ) : null}
 
@@ -3064,13 +3197,37 @@ function ReportPage({
           ) : null}
 
           {!isAnalyzing && !displayedReport ? (
-            <div className="empty-report empty-report-state">
-              <p className="eyebrow">暂无分析报告</p>
-              <h2>请先上传一张照片并完成照片点评。</h2>
-              <button className="primary-link" type="button" onClick={onStartReview}>
-                前往开始点评
-              </button>
-            </div>
+            analysisState.kind === 'error' ? (
+              <div className="empty-report empty-report-state report-failure-state" role="alert">
+                <p className="eyebrow">报告生成失败</p>
+                <h2>暂时无法完成这次照片分析</h2>
+                <p>可能原因包括：</p>
+                <ul>
+                  <li>服务器繁忙，暂时无法处理新的报告。</li>
+                  <li>网络异常，照片或分析结果未能完整传输。</li>
+                  <li>上传内容为非摄影图片，无法进行可靠的摄影评审。</li>
+                </ul>
+                {analysisState.message ? <p className="report-failure-detail">本次提示：{analysisState.message}</p> : null}
+                <div className="report-failure-actions">
+                  {canRetryAnalysis ? (
+                    <button className="primary-link" type="button" onClick={onRetryAnalysis}>
+                      重新生成报告
+                    </button>
+                  ) : null}
+                  <button className="secondary-button" type="button" onClick={onStartReview}>
+                    返回调整照片
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="empty-report empty-report-state">
+                <p className="eyebrow">暂无分析报告</p>
+                <h2>请先上传一张照片并完成照片点评。</h2>
+                <button className="primary-link" type="button" onClick={onStartReview}>
+                  前往开始点评
+                </button>
+              </div>
+            )
           ) : null}
 
           {displayedReport ? (
@@ -3207,6 +3364,7 @@ function ReportPage({
                     onOptimizedImageGenerated={activeRecord
                       ? (optimizedImageUrl) => onSaveOptimizedImage(activeRecord.id, optimizedImageUrl)
                       : undefined}
+                    onOptimizedImageReady={handleOptimizationCompleted}
                     onGenerationStateChange={setOptimizationPreviewStatus}
                     enabled={Boolean(displayedImageUrl)}
                   />
@@ -3258,7 +3416,61 @@ function ReportPage({
             />
           ) : null}
       </section>
+      <CompletionNoticeStack
+        notices={completionNotices}
+        onDock={(id) => setCompletionNoticeDocked(id, true)}
+        onReveal={(id) => setCompletionNoticeDocked(id, false)}
+      />
     </main>
+  );
+}
+
+function CompletionNoticeStack({
+  notices,
+  onDock,
+  onReveal,
+}: {
+  notices: CompletionNotice[];
+  onDock: (id: CompletionNotice['id']) => void;
+  onReveal: (id: CompletionNotice['id']) => void;
+}) {
+  if (notices.length === 0) return null;
+
+  return createPortal(
+    <aside className="completion-notice-stack" aria-label="生成完成提醒">
+      {notices.map((notice) => (
+        <section
+          className={`completion-notice completion-notice-${notice.kind}${notice.docked ? ' is-docked' : ''}`}
+          key={notice.id}
+          role="status"
+          onMouseEnter={() => notice.docked && onReveal(notice.id)}
+          onFocusCapture={() => notice.docked && onReveal(notice.id)}
+        >
+          <button
+            className="completion-notice-dock"
+            type="button"
+            aria-label={`收起${notice.kind === 'optimization' ? '优化图片' : '导出报告'}提醒`}
+            onClick={() => onDock(notice.id)}
+          >
+            ×
+          </button>
+          <span className="completion-notice-kicker">
+            {notice.kind === 'optimization' ? '优化图片' : '导出报告'}
+          </span>
+          <strong>{notice.title}</strong>
+          <p>{notice.message}</p>
+          <button
+            className="completion-notice-save"
+            type="button"
+            aria-label={`保存${notice.kind === 'optimization' ? '优化图片' : '导出报告'}`}
+            onClick={() => downloadImage(notice.imageUrl, notice.fileName)}
+          >
+            保存到本地
+          </button>
+        </section>
+      ))}
+    </aside>,
+    document.body,
   );
 }
 
@@ -3583,7 +3795,7 @@ function HistoryPage({ historyRecords, onDeleteRecord, onOpenRecord, onStartRevi
                 {isNewestRecord ? <span className="history-new-label">NEW</span> : null}
                 {record.reportSource !== 'ai' ? (
                   <span className={`history-source-label history-source-${record.reportSource}`}>
-                    {record.reportSource === 'mock' ? '示例结果' : '来源未标注'}
+                    历史报告
                   </span>
                 ) : null}
                 {isManaging ? (
