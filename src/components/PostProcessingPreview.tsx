@@ -9,6 +9,7 @@ type PostProcessingPreviewProps = {
   nextShooting: NextShootingAdvice | null;
   persistedImageUrl?: string;
   onOptimizedImageGenerated?: (imageUrl: string) => Promise<void> | void;
+  onOptimizedImageReady?: (imageUrl: string) => void;
   onGenerationStateChange?: (state: 'not-required' | 'generating' | 'ready' | 'error') => void;
   enabled: boolean;
 };
@@ -24,7 +25,6 @@ type ComparisonView = 'before' | 'after';
 const SERVER_PREVIEW_TIMEOUT_MS = 20_000;
 const AI_PREVIEW_TIMEOUT_MS = 120_000;
 const AI_PREVIEW_LONG_WAIT_MS = 30_000;
-const AI_PREVIEW_SUCCESS_NOTICE_MS = 3_200;
 const optimizationLabels: Record<OptimizationKind, string> = {
   crop: '裁剪画面',
   tone: '调整明暗',
@@ -36,7 +36,7 @@ const optimizationLabels: Record<OptimizationKind, string> = {
   other: '画面优化',
 };
 
-export function PostProcessingPreview({ imageUrl, report, medium, nextShooting, persistedImageUrl = '', onOptimizedImageGenerated, onGenerationStateChange, enabled }: PostProcessingPreviewProps) {
+export function PostProcessingPreview({ imageUrl, report, medium, nextShooting, persistedImageUrl = '', onOptimizedImageGenerated, onOptimizedImageReady, onGenerationStateChange, enabled }: PostProcessingPreviewProps) {
   const adjustments = useMemo(
     () => getReportPreviewAdjustments(report),
     [report],
@@ -48,7 +48,6 @@ export function PostProcessingPreview({ imageUrl, report, medium, nextShooting, 
   const [serverStatus, setServerStatus] = useState<'idle' | 'rendering' | 'ready' | 'error'>('idle');
   const [aiStatus, setAiStatus] = useState<'idle' | 'rendering' | 'ready' | 'error'>('idle');
   const [hasLongWaited, setHasLongWaited] = useState(false);
-  const [showSuccessNotice, setShowSuccessNotice] = useState(false);
   const [requestVersion, setRequestVersion] = useState(0);
   const [comparisonView, setComparisonView] = useState<ComparisonView>('after');
   const forceGenerationRef = useRef(false);
@@ -60,7 +59,6 @@ export function PostProcessingPreview({ imageUrl, report, medium, nextShooting, 
     let timeoutId: number | undefined;
     let imageTimeoutId: number | undefined;
     let longWaitTimerId: number | undefined;
-    let successNoticeTimerId: number | undefined;
     let renderTimerId: number | undefined;
     let animationFrameId: number | undefined;
 
@@ -73,7 +71,6 @@ export function PostProcessingPreview({ imageUrl, report, medium, nextShooting, 
     setServerStatus('idle');
     setAiStatus(!forceGeneration && persistedImageUrl ? 'ready' : 'idle');
     setHasLongWaited(false);
-    setShowSuccessNotice(false);
     setComparisonView('after');
 
     if (!enabled || !imageUrl) {
@@ -132,10 +129,7 @@ export function PostProcessingPreview({ imageUrl, report, medium, nextShooting, 
               setAiPreviewUrl(data.imageUrl);
               setAiStatus('ready');
               onGenerationStateChange?.('ready');
-              setShowSuccessNotice(true);
-              successNoticeTimerId = window.setTimeout(() => {
-                if (!cancelled) setShowSuccessNotice(false);
-              }, AI_PREVIEW_SUCCESS_NOTICE_MS);
+              onOptimizedImageReady?.(data.imageUrl);
             })
             .catch(() => {
               if (cancelled) return;
@@ -211,7 +205,6 @@ export function PostProcessingPreview({ imageUrl, report, medium, nextShooting, 
       if (timeoutId !== undefined) window.clearTimeout(timeoutId);
       if (imageTimeoutId !== undefined) window.clearTimeout(imageTimeoutId);
       if (longWaitTimerId !== undefined) window.clearTimeout(longWaitTimerId);
-      if (successNoticeTimerId !== undefined) window.clearTimeout(successNoticeTimerId);
     };
   }, [adjustments, enabled, imageUrl, medium, onGenerationStateChange, report.optimizationPlan, report.recipe, requestVersion]);
 
@@ -334,12 +327,6 @@ export function PostProcessingPreview({ imageUrl, report, medium, nextShooting, 
                   <strong>优化后照片暂时未生成</strong>
                   <p>文字报告仍可正常查看，你可以重新尝试。</p>
                 </div>
-              </div>
-            ) : null}
-            {isAiReady && showSuccessNotice ? (
-              <div className="post-preview-success-overlay" role="status" aria-live="polite">
-                <strong>优化后照片已生成</strong>
-                <span>可以切换修改前和修改后查看变化。</span>
               </div>
             ) : null}
             <div className="post-preview-actions">
