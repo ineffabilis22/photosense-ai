@@ -134,7 +134,7 @@ function getMainNavigationButton(label: string) {
 }
 
 function assertCorePageHeading(pageLabel: string) {
-  const main = document.querySelector('main');
+  const main = document.querySelector('main:not([hidden])');
   assert.ok(main, `${pageLabel} 没有 main 地标`);
 
   const firstLevelHeadings = main.querySelectorAll('h1');
@@ -571,7 +571,20 @@ test('优化图生成期间显示可理解的等待状态，完成后确认成�
     });
     await waitFor(() => Boolean(document.querySelector('.post-preview-comparison-toggle')), '修改前后切换按钮');
     assert.match(document.querySelector('.post-preview-status')?.textContent ?? '', /已完成/);
-    assert.match(document.querySelector('.post-preview-success-overlay')?.textContent ?? '', /优化后照片已生成/);
+    const optimizationNotice = document.querySelector('.completion-notice-optimization');
+    assert.match(optimizationNotice?.textContent ?? '', /优化图片生成完成/);
+    assert.equal(optimizationNotice?.closest('.page-report'), null);
+    assert.ok(optimizationNotice?.querySelector('button[aria-label="保存优化图片"]'));
+    const dockButton = optimizationNotice?.querySelector<HTMLButtonElement>('button[aria-label="收起优化图片提醒"]');
+    assert.ok(dockButton);
+    await click(dockButton);
+    assert.equal(optimizationNotice?.classList.contains('is-docked'), true);
+    await act(async () => optimizationNotice?.dispatchEvent(new window.MouseEvent('mouseover', { bubbles: true })));
+    assert.equal(optimizationNotice?.classList.contains('is-docked'), false);
+    const editorialCss = await readFile(new URL('../src/theme-editorial-monochrome.css', import.meta.url), 'utf8');
+    assert.match(editorialCss, /\.completion-notice-stack[\s\S]*?position:\s*fixed[\s\S]*?flex-direction:\s*column/);
+    assert.match(editorialCss, /\.completion-notice\.is-docked[\s\S]*?translateX\(calc\(100% - 12px\)\)/);
+    assert.match(editorialCss, /@media \(prefers-reduced-motion:\s*reduce\)[\s\S]*?\.completion-notice[\s\S]*?transition:\s*none/);
     assert.match(document.querySelector('.post-preview-completion-note')?.textContent ?? '', /优化后照片已生成/);
     assert.match(document.querySelector('.post-preview-completion-note')?.textContent ?? '', /修改前.*修改后/);
     assert.equal((getButton('保存预览') as HTMLButtonElement).disabled, false);
@@ -802,7 +815,7 @@ test('取消分析不会生成报告或写入历史', async () => {
   }
 });
 
-test('失败后的重试用实时报告替换示例记录', async () => {
+test('分析失败显示独立失败页且不写入示例记录，重试成功后保存真实报告', async () => {
   const environment = await renderApp();
 
   try {
@@ -828,13 +841,20 @@ test('失败后的重试用实时报告替换示例记录', async () => {
     const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
     await uploadFile(fileInput, new File([new Uint8Array(1024)], 'retry.jpg', { type: 'image/jpeg' }));
     await click(getButton('开始分析'));
-    await waitFor(() => (document.body.textContent ?? '').includes('示例结果'), '显示示例结果');
-    await click(getButton('重新生成结果'));
-    await waitFor(() => (document.body.textContent ?? '').includes('实时结果'), '重试后显示实时结果');
+    await waitFor(() => (document.body.textContent ?? '').includes('报告生成失败'), '显示报告失败页');
+    assert.match(document.body.textContent ?? '', /服务器繁忙/);
+    assert.match(document.body.textContent ?? '', /网络异常/);
+    assert.match(document.body.textContent ?? '', /非摄影图片/);
+    assert.equal(document.querySelector('.diagnostic-report-shell'), null);
+    assert.doesNotMatch(document.body.textContent ?? '', /实时结果|示例结果/);
+    assert.equal(JSON.parse(localStorage.getItem(HISTORY_STORAGE_KEY) ?? '[]').length, 0);
+
+    await click(getButton('重新生成报告'));
+    await waitFor(() => (document.body.textContent ?? '').includes('报告生成成功'), '重试后显示成功结果');
     await waitFor(() => {
       const records = JSON.parse(localStorage.getItem(HISTORY_STORAGE_KEY) ?? '[]');
       return records.length === 1 && records[0]?.reportSource === 'ai';
-    }, '只保存一条实时报告记录');
+    }, '只保存一条成功报告记录');
 
     assert.equal(analysisRequestCount, 2);
     assert.match(document.body.textContent ?? '', /画面右侧边缘/);
@@ -916,7 +936,8 @@ test('高置信度题材不一致时显示非阻断纠错提示', async () => {
     assert.equal(warning?.querySelector('.report-genre-warning-label')?.textContent?.trim(), '题材核对');
     assert.equal(warning?.querySelector('.report-genre-warning-label b'), null);
     assert.ok(getButton('调整题材后重新分析'));
-    assert.match(document.body.textContent ?? '', /实时结果/);
+    assert.match(document.body.textContent ?? '', /报告生成成功/);
+    assert.match(document.body.textContent ?? '', /AI 分析已完成，请查看下方结果/);
   } finally {
     await cleanupEnvironment(environment);
   }
@@ -971,6 +992,21 @@ test('v2 历史记录升级到 v3 时保留，但不展示规则元数据', asyn
     assert.doesNotMatch(document.body.textContent ?? '', /暂无历史记录/);
     assert.doesNotMatch(document.body.textContent ?? '', /本次规则|历史规则/);
     assert.equal(localStorage.getItem(HISTORY_SCHEMA_VERSION_KEY), HISTORY_SCHEMA_VERSION);
+  } finally {
+    await cleanupEnvironment(environment);
+  }
+});
+
+test('旧的失败示例记录不会继续出现在用户历史中', async () => {
+  const mockRecord = createHistoryRecord('old-mock', '2026-02-01T10:00:00Z', 0);
+  mockRecord.reportSource = 'mock';
+  const environment = await renderApp([mockRecord]);
+
+  try {
+    await click(getButton('历史记录'));
+    assert.match(document.body.textContent ?? '', /暂无历史记录/);
+    assert.doesNotMatch(document.body.textContent ?? '', /示例结果/);
+    assert.equal(JSON.parse(localStorage.getItem(HISTORY_STORAGE_KEY) ?? '[]').length, 0);
   } finally {
     await cleanupEnvironment(environment);
   }
@@ -1740,18 +1776,24 @@ test('分析报告仅提供图片导出与文字复制，并可选择简易或�
 
     await click(getButton('导出报告图片'));
     const exportOptions = [...document.querySelectorAll<HTMLButtonElement>('.report-export-menu button')];
+    const exportDescriptions = [...document.querySelectorAll<HTMLElement>('.report-export-option')];
     assert.equal(exportOptions.length, 2);
     assert.match(document.querySelector('.report-export-intro')?.textContent ?? '', /根据分享或复盘目的，选择不同的信息密度/);
-    assert.match(exportOptions[0].textContent ?? '', /简易报告/);
-    assert.match(exportOptions[0].textContent ?? '', /4:5 社交分享海报/);
-    assert.match(exportOptions[0].textContent ?? '', /前后对比、评审结论、综合与五维评分/);
-    assert.match(exportOptions[1].textContent ?? '', /详细报告/);
-    assert.match(exportOptions[1].textContent ?? '', /完整评审长图/);
-    assert.match(exportOptions[1].textContent ?? '', /保存评测内容并随时复盘/);
-    assert.doesNotMatch(exportOptions[1].textContent ?? '', /3–4 页|分为/);
+    assert.equal(exportOptions[0].textContent?.trim(), '生成简易报告');
+    assert.equal(exportOptions[1].textContent?.trim(), '生成详细报告');
+    assert.match(exportDescriptions[0].textContent ?? '', /4:5 社交分享海报/);
+    assert.match(exportDescriptions[0].textContent ?? '', /前后对比、评审结论、综合与五维评分/);
+    assert.match(exportDescriptions[1].textContent ?? '', /完整评审长图/);
+    assert.match(exportDescriptions[1].textContent ?? '', /保存评测内容并随时复盘/);
+    assert.doesNotMatch(exportDescriptions[1].textContent ?? '', /3–4 页|分为/);
     assert.equal(getButtons('分享').length, 0);
 
     const darkroomCss = await readFile(new URL('../src/theme-darkroom.css', import.meta.url), 'utf8');
+    const appSource = await readFile(new URL('../src/App.tsx', import.meta.url), 'utf8');
+    const exportHandlerSource = appSource.slice(
+      appSource.indexOf('async function handleExportReport'),
+      appSource.indexOf('\n  return (', appSource.indexOf('async function handleExportReport')),
+    );
     assert.match(darkroomCss, /\.page-report\.report-export-host > \.report-section\.page-view[\s\S]*?width: 1320px !important[\s\S]*?background: var\(--em-canvas\) !important/);
     assert.match(darkroomCss, /\.page-report\.report-export-host\.is-detailed-export-host \.report-masthead-copy h1[\s\S]*?color: #f5f5f1 !important/);
     assert.match(darkroomCss, /\.page-report\.report-export-host \.report-export-artwork[\s\S]*?opacity: 0\.22[\s\S]*?mask-image: linear-gradient/);
@@ -1765,7 +1807,55 @@ test('分析报告仅提供图片导出与文字复制，并可选择简易或�
     assert.ok(document.querySelector('.report-share-poster'));
     assert.match(document.querySelector('.report-share-poster')?.textContent ?? '', /核心优化建议/);
     assert.doesNotMatch(darkroomCss, /\.page-report \.diagnostic-report\.is-exporting[\s\S]*?#eee7d8/);
+    assert.doesNotMatch(exportHandlerSource, /downloadLink\.click\(\)/, '生成报告不应自动触发下载');
+    assert.match(appSource, /reportExportImages/, '生成后的报告图片应写回历史记录');
   } finally {
+    await cleanupEnvironment(environment);
+  }
+});
+
+test('切换页面时报告页保持挂载，生成窗口状态不会被路由切换清除', async () => {
+  const environment = await renderApp([createHistoryRecord('persistent-report', '2026-02-01T10:00:00Z', 0)]);
+
+  try {
+    await click(getMainNavigationButton('分析报告'));
+    await click(getButton('导出报告图片'));
+    assert.ok(document.querySelector('.report-export-menu'));
+
+    await click(getMainNavigationButton('首页'));
+    const hiddenReport = document.querySelector('main.page-report[hidden]');
+    assert.ok(hiddenReport, '离开报告页时，报告页应保持挂载但隐藏');
+    assert.ok(hiddenReport?.querySelector('.report-export-menu'), '导出窗口状态应随报告页保留');
+
+    await click(getMainNavigationButton('分析报告'));
+    assert.ok(document.querySelector('main.page-report:not([hidden])'));
+    assert.ok(document.querySelector('.report-export-menu'), '返回报告页时，导出窗口状态应保留');
+  } finally {
+    await cleanupEnvironment(environment);
+  }
+});
+
+test('已生成的报告图片随历史记录恢复，并在导出窗口提供保存与重新生成入口', async () => {
+  const record = createHistoryRecord('saved-export', '2026-02-01T10:00:00Z', 0);
+  record.reportExportImages = { simple: 'data:image/webp;base64,c2F2ZWQtcmVwb3J0' };
+  const environment = await renderApp([record]);
+  const originalAnchorClick = window.HTMLAnchorElement.prototype.click;
+  let downloadCount = 0;
+
+  try {
+    window.HTMLAnchorElement.prototype.click = () => {
+      downloadCount += 1;
+    };
+    await click(getButton('分析报告'));
+    await click(getButton('导出报告图片'));
+
+    assert.ok(getButton('保存简易报告'));
+    assert.ok(getButton('重新生成简易报告'));
+    assert.ok(getButton('生成详细报告'));
+    await click(getButton('保存简易报告'));
+    assert.equal(downloadCount, 1);
+  } finally {
+    window.HTMLAnchorElement.prototype.click = originalAnchorClick;
     await cleanupEnvironment(environment);
   }
 });
