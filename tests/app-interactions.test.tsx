@@ -1753,6 +1753,7 @@ test('分析报告仅提供图片导出与文字复制，并可选择简易或�
 
     const darkroomCss = await readFile(new URL('../src/theme-darkroom.css', import.meta.url), 'utf8');
     assert.match(darkroomCss, /\.page-report\.report-export-host > \.report-section\.page-view[\s\S]*?width: 1320px !important[\s\S]*?background: var\(--em-canvas\) !important/);
+    assert.match(darkroomCss, /\.page-report\.report-export-host\.is-detailed-export-host \.report-masthead-copy h1[\s\S]*?color: #f5f5f1 !important/);
     assert.match(darkroomCss, /\.page-report\.report-export-host \.report-export-artwork[\s\S]*?opacity: 0\.22[\s\S]*?mask-image: linear-gradient/);
     assert.match(darkroomCss, /\.page-report\.report-export-host \.report-header-tools,[\s\S]*?\.report-side-nav,[\s\S]*?\.post-preview-actions,[\s\S]*?display: none !important/);
     assert.match(darkroomCss, /\.report-share-poster[\s\S]*?width: 1080px[\s\S]*?height: auto[\s\S]*?min-height: 1350px/);

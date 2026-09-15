@@ -6265,6 +6265,10 @@ textarea {
   width: 1080px;
 }
 
+.page-report.report-export-host.is-detailed-export-host .report-masthead-copy h1 {
+  color: #f5f5f1 !important;
+}
+
 .page-report.report-export-host > .report-section.page-view {
   position: relative;
   isolation: isolate;

@@ -540,3 +540,11 @@ final result: passed
 - `npm.cmd run check` passed with 63 tests, TypeScript checks and the production Vite build.
 
 final result: passed
+
+## 2026-09-15 detailed-export title contrast
+
+- The detailed report export masthead title now uses `#f5f5f1` only inside `.is-detailed-export-host`, correcting the dark inherited title without changing the live report or simple share poster.
+- Visual evidence: `tmp/qa-detailed-export-title.png` at the fixed 1320 px detailed-export width.
+- `npm.cmd run check` passed with 63 tests, TypeScript checks and the production Vite build.
+
+final result: passed
