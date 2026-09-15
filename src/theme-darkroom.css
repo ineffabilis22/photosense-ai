@@ -6312,8 +6312,7 @@ textarea {
 .page-report.report-export-host .post-preview-actions,
 .page-report.report-export-host .post-preview-comparison-toggle,
 .page-report.report-export-host .post-preview-status,
-.page-report.report-export-host .post-preview-loading-overlay,
-.page-report.report-export-host .post-preview-success-overlay {
+.page-report.report-export-host .post-preview-loading-overlay {
   display: none !important;
 }
 
