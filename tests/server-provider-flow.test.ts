@@ -18,10 +18,10 @@ function close(server: http.Server) {
   return new Promise<void>((resolve) => server.close(() => resolve()));
 }
 
-async function waitForHealth(logs: () => string) {
+async function waitForHealth(logs: () => string, port = appPort) {
   for (let attempt = 0; attempt < 60; attempt += 1) {
     try {
-      const response = await fetch(`http://127.0.0.1:${appPort}/api/health`);
+      const response = await fetch(`http://127.0.0.1:${port}/api/health`);
       if (response.ok) return;
     } catch {
       // Server is still starting.
@@ -46,7 +46,14 @@ test('OpenAI-compatible 完整链路传递新提示词并返回照片针对性�
   const imageProviderRequests: Array<{ body: string; authorization?: string }> = [];
   const providerReport = {
     overall: '红伞人物是明确主体，湿润路面提供夜景层次。',
-    scoreBands: { 构图: '作品级', 光线: '强', 色彩: '成立', 叙事: '普通', 技术完成度: '严重问题' },
+    scoreBands: undefined,
+    scoreBreakdown: {
+      构图: { fundamentals: { subjectHierarchy: 5, placementBalance: 4, edgeControl: 3, depthAndGeometry: 4 }, refinement: 2, evidence: '人物和红伞形成清楚入口，但右侧亮点仍分散重心。' },
+      光线: { fundamentals: { exposureTone: 4, directionQuality: 4, subjectSeparation: 3, highlightShadowControl: 3 }, refinement: 2, evidence: '夜景层次可读，但路面高光和人物暗部还可进一步控制。' },
+      色彩: { fundamentals: { harmony: 4, separation: 4, paletteIntent: 4, consistency: 4 }, refinement: 4, evidence: '红伞承担记忆点，冷暖关系稳定且没有明显杂色。' },
+      叙事: { fundamentals: { subjectClarity: 4, contextRelation: 4, momentEmotion: 3, specificity: 3 }, refinement: 2, evidence: '人物、红伞与街道形成现场关系，但动作仍不够决定性。' },
+      技术完成度: { fundamentals: { focusDetail: 1, exposureIntegrity: 3, perspectiveProcessing: 3, mediumFit: 3 }, refinement: 1, evidence: '夜景氛围保留，但人物动作与环境细节存在明显失焦。' },
+    },
     scoreReasons: {
       构图: '主体清楚，但右侧视觉重量偏高。',
       光线: '夜景层次可读，路面高光略亮。',
@@ -133,6 +140,7 @@ test('OpenAI-compatible 完整链路传递新提示词并返回照片针对性�
           }
           : {
               ...providerReport,
+              scoreBreakdown: undefined,
               scoreBands: { 构图: '作品级', 光线: '强', 色彩: '强', 叙事: '强', 技术完成度: '强' },
               verdict: {
                 ...providerReport.verdict,
@@ -212,10 +220,11 @@ test('OpenAI-compatible 完整链路传递新提示词并返回照片针对性�
     assert.equal(data.report.photoSpecific.affectedArea, '画面右侧边缘');
     assert.equal(data.report.photoSpecific.crop.direction, '从右侧收紧');
     assert.equal(data.report.scoreReasons.构图, '主体清楚，但右侧视觉重量偏高。');
-    assert.equal(data.report.scoreVersion, 'v3');
-    assert.deepEqual(data.report.scores, { 构图: 95, 光线: 85, 色彩: 75, 叙事: 65, 技术完成度: 35 });
-    assert.deepEqual(hobbyistResult.data.report.scores, data.report.scores);
-    assert.deepEqual(hobbyistResult.data.report.scoreBands, data.report.scoreBands);
+    assert.equal(data.report.scoreVersion, 'v4-rubric');
+    assert.deepEqual(data.report.scores, { 构图: 72, 光线: 64, 色彩: 80, 叙事: 64, 技术完成度: 44 });
+    assert.deepEqual(hobbyistResult.data.report.scores, { 构图: 80, 光线: 70, 色彩: 80, 叙事: 70, 技术完成度: 50 });
+    assert.notDeepEqual(hobbyistResult.data.report.scores, data.report.scores);
+    assert.deepEqual(hobbyistResult.data.report.scoreBands, { 构图: '强', 光线: '成立', 色彩: '强', 叙事: '成立', 技术完成度: '偏弱' });
     assert.equal(hobbyistResult.data.report.scoreReasons.构图, '主体清楚，但右侧视觉重量偏高。');
     assert.doesNotMatch(JSON.stringify(hobbyistResult.data.report.scoreReasons), /漂移理由/);
     assert.equal(strongResult.data.report.improvementPriority, 'none');
@@ -256,13 +265,13 @@ test('OpenAI-compatible 完整链路传递新提示词并返回照片针对性�
     assert.doesNotMatch(prompt, /"构图": 78/);
     assert.match(prompt, /affectedArea 只描述/);
     assert.match(prompt, /可以使用高光、阴影/);
-    assert.match(prompt, /基础视觉分/);
+    assert.match(prompt, /scoreBreakdown/);
     assert.match(prompt, /不要为了提供建议而虚构问题/);
     assert.doesNotMatch(prompt, /"scores"\s*:/);
     const hobbyistPrompt = hobbyistRequest.messages?.[0]?.content?.find((item: any) => item.type === 'text')?.text ?? '';
     assert.match(hobbyistPrompt, /使用日常语言/);
     assert.match(hobbyistPrompt, /不直接使用高光、阴影/);
-    assert.match(hobbyistPrompt, /基础视觉分/);
+    assert.match(hobbyistPrompt, /四项基础能力/);
     assert.equal(image, imageDataUrl);
 
     const optimizedResponse = await fetch(`http://127.0.0.1:${appPort}/api/generate-optimized-image`, {
@@ -317,6 +326,139 @@ test('OpenAI-compatible 完整链路传递新提示词并返回照片针对性�
     assert.match(imageProviderRequests[1].body, /PhotoSense AI 的详细报告/);
     assert.match(imageProviderRequests[1].body, /严禁生成任何文字、汉字、字母、数字/);
     assert.match(imageProviderRequests[1].body, /红伞建立了清楚的夜景入口/);
+  } finally {
+    await stopChild(child);
+    await close(provider);
+  }
+});
+
+test('上游连接失败重试耗尽后返回 503', { timeout: 15_000 }, async () => {
+  const retryAppPort = 18883;
+  const unavailableProviderPort = 18884;
+  let stdout = '';
+  let stderr = '';
+  const child = spawn(process.execPath, ['server/start.mjs'], {
+    cwd: process.cwd(),
+    env: {
+      ...process.env,
+      PORT: String(retryAppPort),
+      NODE_ENV: 'test',
+      ENABLE_HISTORY_EXPORT: 'false',
+      OPENAI_RELAY_BASE_URL: `http://127.0.0.1:${unavailableProviderPort}/v1`,
+      OPENAI_RELAY_API_KEY: 'test-key',
+      OPENAI_RELAY_MODEL: 'test-vision-model',
+      OPENAI_RELAY_TIMEOUT_MS: '5000',
+      IMAGE_RELAY_BASE_URL: '',
+      IMAGE_RELAY_API_KEY: '',
+      IMAGE_RELAY_MODEL: '',
+      GEMINI_RELAY_BASE_URL: '',
+      GEMINI_RELAY_API_KEY: '',
+      ANTHROPIC_RELAY_BASE_URL: '',
+      ANTHROPIC_RELAY_API_KEY: '',
+      GEMINI_API_KEY: '',
+    },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  child.stdout?.on('data', (chunk) => { stdout += String(chunk); });
+  child.stderr?.on('data', (chunk) => { stderr += String(chunk); });
+
+  try {
+    await waitForHealth(() => `${stdout}\n${stderr}`, retryAppPort);
+    const response = await fetch(`http://127.0.0.1:${retryAppPort}/api/analyze-photo`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        imageDataUrl,
+        fileName: 'unavailable.png',
+        medium: '数码摄影',
+        genre: '街头摄影',
+        skillLevel: '爱好者水平',
+      }),
+    });
+    const data = await response.json();
+    assert.equal(response.status, 503, `${stdout}\n${stderr}`);
+    assert.equal(data.ok, false);
+    assert.match(data.error, /暂时无法连接/);
+    assert.match(`${stdout}\n${stderr}`, /retrying once/);
+  } finally {
+    await stopChild(child);
+  }
+});
+
+test('上游瞬时连接失败时只重试一次并成功返回报告', { timeout: 15_000 }, async () => {
+  const retryAppPort = 18881;
+  const retryProviderPort = 18882;
+  let providerRequestCount = 0;
+  const provider = http.createServer((request, response) => {
+    let body = '';
+    request.setEncoding('utf8');
+    request.on('data', (chunk) => { body += chunk; });
+    request.on('end', () => {
+      providerRequestCount += 1;
+      assert.ok(body.includes('data:image/png;base64,'));
+      response.writeHead(200, { 'Content-Type': 'application/json' });
+      response.end(JSON.stringify({
+        choices: [{
+          message: {
+            content: JSON.stringify({
+              scoreBands: { 构图: '成立', 光线: '成立', 色彩: '成立', 叙事: '成立', 技术完成度: '成立' },
+            }),
+          },
+        }],
+      }));
+    });
+  });
+
+  let stdout = '';
+  let stderr = '';
+  const child = spawn(process.execPath, ['server/start.mjs'], {
+    cwd: process.cwd(),
+    env: {
+      ...process.env,
+      PORT: String(retryAppPort),
+      NODE_ENV: 'test',
+      ENABLE_HISTORY_EXPORT: 'false',
+      OPENAI_RELAY_BASE_URL: `http://127.0.0.1:${retryProviderPort}/v1`,
+      OPENAI_RELAY_API_KEY: 'test-key',
+      OPENAI_RELAY_MODEL: 'test-vision-model',
+      OPENAI_RELAY_TIMEOUT_MS: '5000',
+      IMAGE_RELAY_BASE_URL: '',
+      IMAGE_RELAY_API_KEY: '',
+      IMAGE_RELAY_MODEL: '',
+      GEMINI_RELAY_BASE_URL: '',
+      GEMINI_RELAY_API_KEY: '',
+      ANTHROPIC_RELAY_BASE_URL: '',
+      ANTHROPIC_RELAY_API_KEY: '',
+      GEMINI_API_KEY: '',
+    },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  child.stdout?.on('data', (chunk) => { stdout += String(chunk); });
+  child.stderr?.on('data', (chunk) => { stderr += String(chunk); });
+
+  try {
+    await waitForHealth(() => `${stdout}\n${stderr}`, retryAppPort);
+    const requestPromise = fetch(`http://127.0.0.1:${retryAppPort}/api/analyze-photo`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        imageDataUrl,
+        fileName: 'retry.png',
+        medium: '数码摄影',
+        genre: '街头摄影',
+        skillLevel: '爱好者水平',
+      }),
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    await listen(provider, retryProviderPort);
+
+    const response = await requestPromise;
+    const data = await response.json();
+    assert.equal(response.status, 200, `${stdout}\n${stderr}`);
+    assert.equal(data.ok, true);
+    assert.equal(providerRequestCount, 1);
+    assert.match(`${stdout}\n${stderr}`, /retrying once/);
   } finally {
     await stopChild(child);
     await close(provider);

@@ -49,6 +49,8 @@ export function filterAndSortHistoryRecords(records: HistoryRecord[], filters: H
         const firstVersion = getScoreVersion(first);
         const secondVersion = getScoreVersion(second);
         if (firstVersion !== secondVersion) {
+          if (firstVersion === 'v4-rubric') return -1;
+          if (secondVersion === 'v4-rubric') return 1;
           if (firstVersion === 'v3') return -1;
           if (secondVersion === 'v3') return 1;
           return firstVersion.localeCompare(secondVersion);

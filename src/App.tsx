@@ -332,7 +332,7 @@ const HISTORY_STORAGE_KEY = 'photosense_history_records';
 const HISTORY_SCHEMA_VERSION_KEY = 'photosense_history_schema_version';
 const HISTORY_SCHEMA_VERSION = '3';
 const TEST_HISTORY_CLEANUP_VERSION_KEY = 'photosense_test_history_cleanup_v1';
-const CURRENT_SCORE_VERSION = 'v3';
+const CURRENT_SCORE_VERSION = 'v4-rubric';
 const NO_SIGNIFICANT_ISSUE = '未发现影响画面成立的明显问题。';
 const MAX_HISTORY_RECORDS = 20;
 const DEFAULT_ANALYSIS_API_URL = '/api/analyze-photo';
@@ -362,7 +362,7 @@ const mediumGuidance: Record<Medium, string> = {
 
 const levelGuidance: Record<SkillLevel, string> = {
   爱好者水平: '建议先把注意力放在一个明确目标上：让主体更清楚、画面边缘更干净、最亮处不过分抢眼。',
-  进阶水平: '你已经具备一定画面控制力，可以进一步关注主体分离、边缘管理、高光与阴影层次。',
+  进阶水平: '你已经具备一定画面控制力，可以进一步关注主体分离、边缘管理、高光与阴影层次，以及是否主动服务表达。',
 };
 
 const mediumEvaluationFocus: Record<Medium, string> = {
@@ -371,8 +371,8 @@ const mediumEvaluationFocus: Record<Medium, string> = {
 };
 
 const levelEvaluationFocus: Record<SkillLevel, string> = {
-  爱好者水平: '爱好者水平会使用日常、易懂的语言，重点说明主体是否清楚、边缘是否干净，以及下一次可以直接尝试的动作。',
-  进阶水平: '进阶水平会进一步解释高光、阴影、影调、主体分离等摄影关系为什么影响画面。',
+  爱好者水平: '爱好者水平会先看主体、观看顺序、亮暗和清晰度等基础能力；精修不足会转化为练习建议。',
+  进阶水平: '进阶水平除基础能力外，还会检查边缘、层次、时机和表达意图是否被主动控制。',
 };
 
 const genreEvaluationFocus: Record<Genre, string> = {

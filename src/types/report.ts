@@ -8,6 +8,14 @@ export type ScoreName = '构图' | '光线' | '色彩' | '叙事' | '技术完�
 
 export type ScoreBand = '作品级' | '强' | '成立' | '普通' | '偏弱' | '严重问题';
 
+export type ScoreBreakdownCriterion = {
+  fundamentals: Record<string, number>;
+  refinement: number;
+  evidence: string;
+};
+
+export type ScoreBreakdown = Partial<Record<ScoreName, ScoreBreakdownCriterion>>;
+
 export type ImprovementPriority = 'none' | 'optional' | 'material' | 'critical';
 
 export type ReportSource = 'ai' | 'mock' | 'legacy';
@@ -106,6 +114,7 @@ export type Report = {
   overall: string;
   scores: Record<ScoreName, number>;
   scoreBands?: Record<ScoreName, ScoreBand>;
+  scoreBreakdown?: ScoreBreakdown;
   scoreVersion?: string;
   improvementPriority?: ImprovementPriority;
   composition: string;

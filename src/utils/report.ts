@@ -197,6 +197,9 @@ export function mergeAiReportWithFallback(candidate: unknown, fallback: Report, 
     overall: sanitizeUserFacingText(source.overall, fallback.overall),
     scores,
     scoreBands,
+    scoreBreakdown: isRecord(source.scoreBreakdown)
+      ? source.scoreBreakdown as Report['scoreBreakdown']
+      : fallback.scoreBreakdown,
     scoreVersion: typeof source.scoreVersion === 'string' && source.scoreVersion.trim()
       ? source.scoreVersion.trim()
       : fallback.scoreVersion,
