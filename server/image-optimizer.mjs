@@ -1,4 +1,5 @@
 import { hasConfiguredImageProvider, readBoundedNumber } from './config.mjs';
+import { getImageModelCandidates } from './model-catalog.mjs';
 import sharp from 'sharp';
 
 const MAX_DECODED_IMAGE_BYTES = 12 * 1024 * 1024;
@@ -156,16 +157,28 @@ function createImageForm({ buffer, mimeType, extension, model, prompt }) {
   return form;
 }
 
-async function requestOptimizedImage({ endpoint, apiKey, model, buffer, mimeType, extension, prompt, timeoutMs, purpose = '优化图片' }) {
+async function requestOptimizedImage({ endpoint, apiKey, model, buffer, mimeType, extension, prompt, timeoutMs, purpose = '优化图片', transport = 'multipart' }) {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
   let providerResponse;
+  const isJsonTransport = transport === 'json';
 
   try {
     providerResponse = await fetch(endpoint, {
       method: 'POST',
-      headers: { Authorization: `Bearer ${apiKey}` },
-      body: createImageForm({ buffer, mimeType, extension, model, prompt }),
+      headers: isJsonTransport
+        ? {
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+        }
+        : { Authorization: `Bearer ${apiKey}` },
+      body: isJsonTransport
+        ? JSON.stringify({
+          model,
+          prompt,
+          image: { url: `data:${mimeType};base64,${buffer.toString('base64')}` },
+        })
+        : createImageForm({ buffer, mimeType, extension, model, prompt }),
       signal: controller.signal,
     });
   } catch (error) {
@@ -201,12 +214,16 @@ async function requestOptimizedImage({ endpoint, apiKey, model, buffer, mimeType
   throw createHttpError(`${purpose}服务没有返回图片。`, 502);
 }
 
-export async function generateOptimizedImage({ imageDataUrl, medium = '数码摄影', optimizationPlan, nextShooting }, env = process.env) {
-  if (!hasConfiguredImageProvider(env)) {
-    throw createHttpError('优化图片服务暂未配置。', 503);
-  }
+function getImageRelayCredentials(env) {
+  return {
+    baseUrl: env.IMAGE_RELAY_BASE_URL || env.REPORT_RELAY_BASE_URL || env.OPENAI_RELAY_BASE_URL,
+    apiKey: env.IMAGE_RELAY_API_KEY || env.REPORT_RELAY_API_KEY || env.OPENAI_RELAY_API_KEY,
+  };
+}
 
-  const baseUrl = normalizeImageRelayBaseUrl(env.IMAGE_RELAY_BASE_URL);
+async function generateOptimizedImageWithModel({ candidate, imageDataUrl, medium, optimizationPlan, nextShooting }, env) {
+  const credentials = getImageRelayCredentials(env);
+  const baseUrl = normalizeImageRelayBaseUrl(credentials.baseUrl);
   let endpoint;
   try {
     endpoint = new URL(`${baseUrl}/images/edits`);
@@ -221,17 +238,17 @@ export async function generateOptimizedImage({ imageDataUrl, medium = '数码摄
   const plan = normalizeOptimizationPlan(optimizationPlan);
   const nextShot = normalizeNextShooting(nextShooting);
   const extension = mimeType === 'image/jpeg' ? 'jpg' : mimeType.split('/')[1];
-  const model = String(env.IMAGE_RELAY_MODEL).trim();
   const prompt = createImageEditPrompt(plan, medium, nextShot);
   const timeoutMs = readBoundedNumber(env, 'IMAGE_RELAY_TIMEOUT_MS', 120_000, { min: 10_000, max: 300_000, integer: true });
   const requestOptions = {
     endpoint,
-    apiKey: env.IMAGE_RELAY_API_KEY,
-    model,
+    apiKey: credentials.apiKey,
+    model: candidate.model,
     buffer,
     mimeType,
     extension,
     timeoutMs,
+    transport: candidate.id === 'grok-image' ? 'json' : 'multipart',
   };
   let result = await requestOptimizedImage({ ...requestOptions, prompt });
 
@@ -249,12 +266,43 @@ export async function generateOptimizedImage({ imageDataUrl, medium = '数码摄
   return { imageUrl: result.imageUrl, provider: 'image-relay' };
 }
 
+export async function generateOptimizedImage({ imageDataUrl, medium = '数码摄影', optimizationPlan, nextShooting }, env = process.env) {
+  if (!hasConfiguredImageProvider(env)) {
+    throw createHttpError('优化图片服务暂未配置。', 503);
+  }
+
+  const candidates = getImageModelCandidates('auto', env);
+
+  let lastError;
+  for (const candidate of candidates) {
+    try {
+      const result = await generateOptimizedImageWithModel({
+        candidate,
+        imageDataUrl,
+        medium,
+        optimizationPlan,
+        nextShooting,
+      }, env);
+      return result;
+    } catch (error) {
+      lastError = error;
+      console.warn(`[PhotoSense AI] image model ${candidate.id} failed:`, error?.message || error);
+    }
+  }
+
+  throw createHttpError(
+    '当前可用的优化图模型均未能完成生成。',
+    lastError?.statusCode === 504 ? 504 : 503,
+  );
+}
+
 export async function generateReportArtwork({ imageDataUrl, mode = 'detailed', reportContent }, env = process.env) {
   if (!hasConfiguredImageProvider(env)) {
     throw createHttpError('报告视觉生成服务暂未配置。', 503);
   }
 
-  const baseUrl = normalizeImageRelayBaseUrl(env.IMAGE_RELAY_BASE_URL);
+  const credentials = getImageRelayCredentials(env);
+  const baseUrl = normalizeImageRelayBaseUrl(credentials.baseUrl);
   let endpoint;
   try {
     endpoint = new URL(`${baseUrl}/images/edits`);
@@ -267,21 +315,36 @@ export async function generateReportArtwork({ imageDataUrl, mode = 'detailed', r
 
   const { buffer, mimeType } = parseImageDataUrl(imageDataUrl);
   const extension = mimeType === 'image/jpeg' ? 'jpg' : mimeType.split('/')[1];
-  const result = await requestOptimizedImage({
-    endpoint,
-    apiKey: env.IMAGE_RELAY_API_KEY,
-    model: String(env.IMAGE_RELAY_MODEL).trim(),
-    buffer,
-    mimeType,
-    extension,
-    prompt: createReportArtworkPrompt(reportContent, mode),
-    timeoutMs: readBoundedNumber(env, 'IMAGE_RELAY_TIMEOUT_MS', 120_000, { min: 10_000, max: 300_000, integer: true }),
-    purpose: '报告视觉',
-  });
+  const candidates = getImageModelCandidates('auto', env);
+  let lastError;
+  for (const candidate of candidates) {
+    try {
+      const result = await requestOptimizedImage({
+        endpoint,
+        apiKey: credentials.apiKey,
+        model: candidate.model,
+        buffer,
+        mimeType,
+        extension,
+        prompt: createReportArtworkPrompt(reportContent, mode),
+        timeoutMs: readBoundedNumber(env, 'IMAGE_RELAY_TIMEOUT_MS', 120_000, { min: 10_000, max: 300_000, integer: true }),
+        purpose: '报告视觉',
+        transport: candidate.id === 'grok-image' ? 'json' : 'multipart',
+      });
 
-  return {
-    artworkUrl: result.imageUrl,
-    provider: 'image-relay',
-    styleVersion: REPORT_ARTWORK_STYLE_VERSION,
-  };
+      return {
+        artworkUrl: result.imageUrl,
+        provider: 'image-relay',
+        styleVersion: REPORT_ARTWORK_STYLE_VERSION,
+      };
+    } catch (error) {
+      lastError = error;
+      console.warn(`[PhotoSense AI] report artwork model ${candidate.id} failed:`, error?.message || error);
+    }
+  }
+
+  throw createHttpError(
+    '当前可用的优化图模型均未能完成生成。',
+    lastError?.statusCode === 504 ? 504 : 503,
+  );
 }

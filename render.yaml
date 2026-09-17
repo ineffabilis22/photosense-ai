@@ -14,17 +14,35 @@ services:
       - key: VITE_ENABLE_HISTORY_EXPORT
         value: "false"
       - key: OPENAI_RELAY_BASE_URL
-        sync: false
+        value: https://kuaipao.pro/v1
       - key: OPENAI_RELAY_API_KEY
         sync: false
       - key: OPENAI_RELAY_MODEL
         value: gpt-5.6-luna
       - key: IMAGE_RELAY_BASE_URL
-        sync: false
+        value: https://kuaipao.pro/v1
       - key: IMAGE_RELAY_API_KEY
         sync: false
       - key: IMAGE_RELAY_MODEL
+        value: gpt-image-2
+      - key: REPORT_RELAY_BASE_URL
+        value: https://kuaipao.pro/v1
+      - key: REPORT_RELAY_API_KEY
         sync: false
+      - key: REPORT_MODEL_GPT
+        value: gpt-5.6-luna
+      - key: REPORT_MODEL_CLAUDE
+        value: claude-sonnet-5
+      - key: REPORT_MODEL_DEEPSEEK
+        value: deepseek-v4.1-flash
+      - key: REPORT_MODEL_GEMINI
+        value: gemini-3-flash
+      - key: IMAGE_MODEL_GPT
+        value: gpt-image-2
+      - key: IMAGE_MODEL_NANO_BANANA
+        value: nano-banana-2
+      - key: IMAGE_MODEL_GROK_IMAGE
+        value: grok-image
       - key: IMAGE_RELAY_TIMEOUT_MS
         value: "120000"
       - key: PROVIDER_TIMEOUT_MS

@@ -1,3 +1,5 @@
+import { hasConfiguredImageRelay, hasConfiguredReportRelay } from './model-catalog.mjs';
+
 export function readBoundedNumber(env, name, fallback, { min, max, integer = false }) {
   const rawValue = env[name];
   if (rawValue == null || String(rawValue).trim() === '') return fallback;
@@ -19,7 +21,7 @@ export function isHistoryExportEnabled(env) {
 
 export function hasConfiguredProvider(env) {
   return Boolean(
-    (env.OPENAI_RELAY_BASE_URL && env.OPENAI_RELAY_API_KEY)
+    hasConfiguredReportRelay(env)
       || (env.GEMINI_RELAY_BASE_URL && env.GEMINI_RELAY_API_KEY)
       || (env.ANTHROPIC_RELAY_BASE_URL && env.ANTHROPIC_RELAY_API_KEY)
       || env.GEMINI_API_KEY,
@@ -27,5 +29,5 @@ export function hasConfiguredProvider(env) {
 }
 
 export function hasConfiguredImageProvider(env) {
-  return Boolean(env.IMAGE_RELAY_BASE_URL && env.IMAGE_RELAY_API_KEY && env.IMAGE_RELAY_MODEL);
+  return hasConfiguredImageRelay(env);
 }

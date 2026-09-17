@@ -4,6 +4,10 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { hasConfiguredImageProvider, hasConfiguredProvider, isHistoryExportEnabled, readBoundedNumber } from './config.mjs';
 import { generateOptimizedImage, generateReportArtwork } from './image-optimizer.mjs';
+import {
+  getReportModelCandidates,
+  hasConfiguredReportRelay,
+} from './model-catalog.mjs';
 import { analyzeImageTone, normalizePreviewRecipe, renderPreviewImage } from './preview-renderer.mjs';
 import {
   SCORE_VERSION,
@@ -27,6 +31,8 @@ const configuredOpenAiRelayModel = process.env.OPENAI_RELAY_MODEL?.trim();
 const OPENAI_RELAY_MODEL = configuredOpenAiRelayModel === 'gpt-5.6'
   ? 'gpt-5.6-luna'
   : configuredOpenAiRelayModel || 'gpt-5.4';
+const REPORT_RELAY_BASE_URL = (process.env.REPORT_RELAY_BASE_URL || OPENAI_RELAY_BASE_URL)?.trim().replace(/\/+$/, '');
+const REPORT_RELAY_API_KEY = (process.env.REPORT_RELAY_API_KEY || process.env.OPENAI_RELAY_API_KEY)?.trim();
 const DEFAULT_REPORT_TEMPERATURE = 0.2;
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
 const GEMINI_RELAY_BASE_URL = process.env.GEMINI_RELAY_BASE_URL?.trim().replace(/\/+$/, '');
@@ -648,9 +654,9 @@ function getSafeVerdictTitle(genre = '街头摄影', scores = {}, skillLevel = '
   return skillTone[skillLevel]?.[weakest.name] || genreFallback[genre] || skillTone.进阶水平[weakest.name] || '画面基础成立，重心仍可收紧';
 }
 
-function getStableBaseEvaluation({ imageDataUrl, medium, genre, skillLevel, scores, scoreBands, scoreReasons, scoreBreakdown }) {
+function getStableBaseEvaluation({ imageDataUrl, medium, genre, skillLevel, scores, scoreBands, scoreReasons, scoreBreakdown, cacheScope = '' }) {
   const cacheKey = createHash('sha256')
-    .update(`${medium}\n${genre}\n`)
+    .update(`${medium}\n${genre}\n${cacheScope}\n`)
     .update(imageDataUrl)
     .digest('hex');
   const cachedEvaluation = baseEvaluationCache.get(cacheKey);
@@ -1397,7 +1403,7 @@ function createJsonRepairPrompt({ brokenText, medium, genre, skillLevel }) {
 ${safeBrokenText}`;
 }
 
-async function repairReportJsonWithOpenAiRelay({ apiKey, relayUrl, brokenText, medium, genre, skillLevel }) {
+async function repairReportJsonWithOpenAiRelay({ apiKey, relayUrl, model, brokenText, medium, genre, skillLevel }) {
   console.warn('[PhotoSense AI] JSON parse failed; attempting OpenAI relay JSON repair.');
 
   const repairResponse = await fetchWithTimeout(relayUrl, {
@@ -1407,7 +1413,7 @@ async function repairReportJsonWithOpenAiRelay({ apiKey, relayUrl, brokenText, m
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      model: OPENAI_RELAY_MODEL,
+      model,
       messages: [
         {
           role: 'user',
@@ -1440,11 +1446,13 @@ async function repairReportJsonWithOpenAiRelay({ apiKey, relayUrl, brokenText, m
   return extractJsonFromText(repairOutputText);
 }
 
-async function createOpenAiRelayReport({ imageDataUrl, medium, genre, skillLevel, fileName, workTitle, title, toneProfile }) {
-  const apiKey = process.env.OPENAI_RELAY_API_KEY;
+async function createOpenAiRelayReport({ imageDataUrl, medium, genre, skillLevel, fileName, workTitle, title, toneProfile }, modelDefinition = null) {
+  const apiKey = REPORT_RELAY_API_KEY;
+  const relayBaseUrl = REPORT_RELAY_BASE_URL;
+  const model = modelDefinition?.model || OPENAI_RELAY_MODEL;
 
-  if (!apiKey) {
-    const error = new Error('未配置 OPENAI_RELAY_API_KEY。');
+  if (!apiKey || !relayBaseUrl) {
+    const error = new Error('未配置报告模型中转服务。');
     error.statusCode = 503;
     throw error;
   }
@@ -1452,11 +1460,11 @@ async function createOpenAiRelayReport({ imageDataUrl, medium, genre, skillLevel
   parseImageDataUrl(imageDataUrl);
 
   const prompt = createReportPrompt({ medium, genre, skillLevel, fileName, workTitle, title, toneProfile });
-  const relayUrl = `${OPENAI_RELAY_BASE_URL}/chat/completions`;
+  const relayUrl = `${relayBaseUrl}/chat/completions`;
 
   console.log('[PhotoSense AI] provider mode: openai-relay');
-  console.log('[PhotoSense AI] base URL:', OPENAI_RELAY_BASE_URL);
-  console.log('[PhotoSense AI] model:', OPENAI_RELAY_MODEL);
+  console.log('[PhotoSense AI] base URL:', relayBaseUrl);
+  console.log('[PhotoSense AI] model:', model);
   console.log('[PhotoSense AI] OpenAI relay request starts');
 
   const relayResponse = await fetchWithTimeout(relayUrl, {
@@ -1466,7 +1474,7 @@ async function createOpenAiRelayReport({ imageDataUrl, medium, genre, skillLevel
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      model: OPENAI_RELAY_MODEL,
+      model,
       messages: [
         {
           role: 'user',
@@ -1516,6 +1524,7 @@ async function createOpenAiRelayReport({ imageDataUrl, medium, genre, skillLevel
     parsedReport = await repairReportJsonWithOpenAiRelay({
       apiKey,
       relayUrl,
+      model,
       brokenText: parseError?.rawText || outputText,
       medium,
       genre,
@@ -1638,20 +1647,62 @@ function applyMeasuredToneProfile(report, toneProfile) {
   };
 }
 
+async function createReportWithSelectedRelay(context, requestedModelId) {
+  const candidates = getReportModelCandidates(requestedModelId, process.env);
+
+  if (!candidates.length) {
+    const error = new Error('报告模型选择无效。');
+    error.statusCode = 400;
+    throw error;
+  }
+
+  let lastError;
+
+  for (const [index, candidate] of candidates.entries()) {
+    try {
+      const report = await createOpenAiRelayReport(context, candidate);
+      return {
+        report,
+        modelInfo: {
+          requestedId: requestedModelId,
+          actualId: candidate.id,
+          label: candidate.label,
+          model: candidate.model,
+          fallbackUsed: requestedModelId === 'auto' && index > 0,
+        },
+      };
+    } catch (error) {
+      lastError = error;
+      console.warn(`[PhotoSense AI] report model ${candidate.id} failed:`, error?.message || error);
+      if (requestedModelId !== 'auto') throw error;
+    }
+  }
+
+  const error = new Error('当前可用的报告模型均未能完成分析。');
+  error.statusCode = lastError?.statusCode === 504 ? 504 : 503;
+  throw error;
+}
+
 async function createPhotoReport({ imageDataUrl, medium = '数码摄影', genre = '街头摄影', skillLevel = DEFAULT_SKILL_LEVEL, fileName = '', workTitle = '', title = '' }) {
   const normalizedSkillLevel = normalizeSkillLevel(skillLevel);
   const toneProfile = await analyzeImageTone(imageDataUrl, { medium });
   const context = { imageDataUrl, medium, genre, skillLevel: normalizedSkillLevel, fileName, workTitle, title, toneProfile };
   let report;
+  let reportModelInfo;
 
-  if (OPENAI_RELAY_BASE_URL) {
-    report = await createOpenAiRelayReport(context);
+  if (hasConfiguredReportRelay(process.env)) {
+    const result = await createReportWithSelectedRelay(context, 'auto');
+    report = result.report;
+    reportModelInfo = result.modelInfo;
   } else if (GEMINI_RELAY_BASE_URL) {
     report = await createRelayReport(context);
+    reportModelInfo = { requestedId: 'auto', actualId: 'gemini', label: `Gemini · ${GEMINI_RELAY_MODEL}`, model: GEMINI_RELAY_MODEL, fallbackUsed: false };
   } else if (ANTHROPIC_RELAY_BASE_URL) {
     report = await createAnthropicRelayReport(context);
+    reportModelInfo = { requestedId: 'auto', actualId: 'claude', label: `Claude · ${ANTHROPIC_RELAY_MODEL}`, model: ANTHROPIC_RELAY_MODEL, fallbackUsed: false };
   } else if (process.env.GEMINI_API_KEY) {
     report = await createNativeGeminiReport(context);
+    reportModelInfo = { requestedId: 'auto', actualId: 'gemini', label: `Gemini · ${GEMINI_MODEL}`, model: GEMINI_MODEL, fallbackUsed: false };
   } else {
     const error = new Error('未配置可用的 AI provider API Key。');
     error.statusCode = 503;
@@ -1667,6 +1718,7 @@ async function createPhotoReport({ imageDataUrl, medium = '数码摄影', genre 
     scoreBands: report.scoreBands,
     scoreReasons: report.scoreReasons,
     scoreBreakdown: report.scoreBreakdown,
+    cacheScope: reportModelInfo?.actualId || '',
   });
   const improvementPriority = getImprovementPriority(stableBaseEvaluation.scores);
   const scoredReport = applyImprovementPriority({

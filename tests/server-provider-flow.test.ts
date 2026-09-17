@@ -378,7 +378,7 @@ test('上游连接失败重试耗尽后返回 503', { timeout: 15_000 }, async (
     const data = await response.json();
     assert.equal(response.status, 503, `${stdout}\n${stderr}`);
     assert.equal(data.ok, false);
-    assert.match(data.error, /暂时无法连接/);
+    assert.match(data.error, /当前可用的报告模型均未能完成分析/);
     assert.match(`${stdout}\n${stderr}`, /retrying once/);
   } finally {
     await stopChild(child);
@@ -459,6 +459,164 @@ test('上游瞬时连接失败时只重试一次并成功返回报告', { timeou
     assert.equal(data.ok, true);
     assert.equal(providerRequestCount, 1);
     assert.match(`${stdout}\n${stderr}`, /retrying once/);
+  } finally {
+    await stopChild(child);
+    await close(provider);
+  }
+});
+
+test('自动分析优先使用 GPT，失败后切换到其他报告模型且不暴露模型信息', { timeout: 15_000 }, async () => {
+  const fallbackAppPort = 18885;
+  const fallbackProviderPort = 18886;
+  const requestedModels: string[] = [];
+  const provider = http.createServer((request, response) => {
+    let body = '';
+    request.setEncoding('utf8');
+    request.on('data', (chunk) => { body += chunk; });
+    request.on('end', () => {
+      const payload = JSON.parse(body);
+      requestedModels.push(payload.model);
+      if (payload.model === 'gpt-5.6-luna') {
+        response.writeHead(503, { 'Content-Type': 'application/json' });
+        response.end(JSON.stringify({ error: { message: 'temporarily unavailable' } }));
+        return;
+      }
+      response.writeHead(200, { 'Content-Type': 'application/json' });
+      response.end(JSON.stringify({
+        choices: [{ message: { content: JSON.stringify({
+          scoreBands: { 构图: '成立', 光线: '成立', 色彩: '成立', 叙事: '成立', 技术完成度: '成立' },
+        }) } }],
+      }));
+    });
+  });
+  await listen(provider, fallbackProviderPort);
+
+  let stdout = '';
+  let stderr = '';
+  const child = spawn(process.execPath, ['server/start.mjs'], {
+    cwd: process.cwd(),
+    env: {
+      ...process.env,
+      PORT: String(fallbackAppPort),
+      NODE_ENV: 'test',
+      ENABLE_HISTORY_EXPORT: 'false',
+      REPORT_RELAY_BASE_URL: `http://127.0.0.1:${fallbackProviderPort}/v1`,
+      REPORT_RELAY_API_KEY: 'test-key',
+      REPORT_MODEL_GPT: 'gpt-5.6-luna',
+      REPORT_MODEL_CLAUDE: 'claude-sonnet-5',
+      REPORT_MODEL_DEEPSEEK: 'deepseek-v4.1-flash',
+      REPORT_MODEL_GEMINI: 'gemini-3-flash',
+      IMAGE_RELAY_BASE_URL: '',
+      IMAGE_RELAY_API_KEY: '',
+      GEMINI_RELAY_BASE_URL: '',
+      GEMINI_RELAY_API_KEY: '',
+      ANTHROPIC_RELAY_BASE_URL: '',
+      ANTHROPIC_RELAY_API_KEY: '',
+      GEMINI_API_KEY: '',
+    },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  child.stdout?.on('data', (chunk) => { stdout += String(chunk); });
+  child.stderr?.on('data', (chunk) => { stderr += String(chunk); });
+
+  try {
+    await waitForHealth(() => `${stdout}\n${stderr}`, fallbackAppPort);
+    const response = await fetch(`http://127.0.0.1:${fallbackAppPort}/api/analyze-photo`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        imageDataUrl,
+        fileName: 'fallback.png',
+        medium: '数码摄影',
+        genre: '街头摄影',
+        skillLevel: '爱好者水平',
+      }),
+    });
+    const data = await response.json();
+    assert.equal(response.status, 200, `${stdout}\n${stderr}`);
+    assert.equal(data.ok, true);
+    assert.deepEqual(requestedModels, ['gpt-5.6-luna', 'claude-sonnet-5']);
+    assert.equal(data.report.reportModel, undefined);
+  } finally {
+    await stopChild(child);
+    await close(provider);
+  }
+});
+
+test('自动生图优先使用 GPT Image，失败后切换到其他生图模型且不暴露模型信息', { timeout: 15_000 }, async () => {
+  const imageAppPort = 18887;
+  const imageProviderPort = 18888;
+  const requestedModels: string[] = [];
+  const provider = http.createServer((request, response) => {
+    let body = '';
+    request.setEncoding('utf8');
+    request.on('data', (chunk) => { body += chunk; });
+    request.on('end', () => {
+      const model = /name="model"\r?\n\r?\n([^\r\n]+)/.exec(body)?.[1] || '';
+      requestedModels.push(model);
+      if (model === 'gpt-image-2') {
+        response.writeHead(503, { 'Content-Type': 'application/json' });
+        response.end(JSON.stringify({ error: { message: 'temporarily unavailable' } }));
+        return;
+      }
+      response.writeHead(200, { 'Content-Type': 'application/json' });
+      response.end(JSON.stringify({ data: [{ b64_json: imageDataUrl.split(',')[1] }] }));
+    });
+  });
+  await listen(provider, imageProviderPort);
+
+  let stdout = '';
+  let stderr = '';
+  const child = spawn(process.execPath, ['server/start.mjs'], {
+    cwd: process.cwd(),
+    env: {
+      ...process.env,
+      PORT: String(imageAppPort),
+      NODE_ENV: 'test',
+      ENABLE_HISTORY_EXPORT: 'false',
+      REPORT_RELAY_BASE_URL: '',
+      REPORT_RELAY_API_KEY: '',
+      OPENAI_RELAY_BASE_URL: '',
+      OPENAI_RELAY_API_KEY: '',
+      IMAGE_RELAY_BASE_URL: `http://127.0.0.1:${imageProviderPort}/v1`,
+      IMAGE_RELAY_API_KEY: 'test-image-key',
+      IMAGE_RELAY_MODEL: '',
+      IMAGE_MODEL_GPT: 'gpt-image-2',
+      IMAGE_MODEL_NANO_BANANA: 'nano-banana-2',
+      IMAGE_MODEL_GROK_IMAGE: 'grok-image',
+      GEMINI_RELAY_BASE_URL: '',
+      GEMINI_RELAY_API_KEY: '',
+      ANTHROPIC_RELAY_BASE_URL: '',
+      ANTHROPIC_RELAY_API_KEY: '',
+      GEMINI_API_KEY: '',
+    },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  child.stdout?.on('data', (chunk) => { stdout += String(chunk); });
+  child.stderr?.on('data', (chunk) => { stderr += String(chunk); });
+
+  try {
+    await waitForHealth(() => `${stdout}\n${stderr}`, imageAppPort);
+    const response = await fetch(`http://127.0.0.1:${imageAppPort}/api/generate-optimized-image`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        imageDataUrl,
+        medium: '数码摄影',
+        optimizationPlan: {
+          summary: '保留主体并改善高光。',
+          imagePrompt: '',
+          items: [{ kind: 'tone', instruction: '适度压低高光。', target: '画面亮部', reason: '高光略亮。', expectedEffect: '层次更稳定。' }],
+        },
+        nextShooting: { summary: '', items: [] },
+      }),
+    });
+    const data = await response.json();
+    assert.equal(response.status, 200, `${stdout}\n${stderr}`);
+    assert.equal(data.ok, true);
+    assert.match(data.imageUrl, /^data:image\/png;base64,/);
+    assert.deepEqual(requestedModels, ['gpt-image-2', 'nano-banana-2']);
+    assert.equal(data.modelInfo, undefined);
   } finally {
     await stopChild(child);
     await close(provider);
