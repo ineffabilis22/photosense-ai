@@ -326,10 +326,16 @@ function waitForProviderRetry() {
   return new Promise((resolve) => setTimeout(resolve, PROVIDER_RETRY_DELAY_MS));
 }
 
-async function fetchWithTimeout(url, options, timeoutMs = PROVIDER_TIMEOUT_MS) {
+async function fetchWithTimeout(url, options, timeoutMs = PROVIDER_TIMEOUT_MS, externalSignal) {
   for (let attempt = 0; attempt <= MAX_PROVIDER_RETRIES; attempt += 1) {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    const handleExternalAbort = () => controller.abort();
+    externalSignal?.addEventListener('abort', handleExternalAbort, { once: true });
+
+    if (externalSignal?.aborted) {
+      controller.abort();
+    }
 
     try {
       return await fetch(url, {
@@ -338,6 +344,13 @@ async function fetchWithTimeout(url, options, timeoutMs = PROVIDER_TIMEOUT_MS) {
       });
     } catch (error) {
       if (error?.name === 'AbortError') {
+        if (externalSignal?.aborted) {
+          const abortedError = new Error('AI 分析请求已被取消。');
+          abortedError.name = 'AbortError';
+          abortedError.isAborted = true;
+          throw abortedError;
+        }
+
         const timeoutError = new Error('AI 分析请求超时，请稍后重试。');
         timeoutError.statusCode = 504;
         timeoutError.isTimeout = true;
@@ -363,6 +376,7 @@ async function fetchWithTimeout(url, options, timeoutMs = PROVIDER_TIMEOUT_MS) {
       throw error;
     } finally {
       clearTimeout(timeout);
+      externalSignal?.removeEventListener('abort', handleExternalAbort);
     }
   }
 
@@ -1403,7 +1417,7 @@ function createJsonRepairPrompt({ brokenText, medium, genre, skillLevel }) {
 ${safeBrokenText}`;
 }
 
-async function repairReportJsonWithOpenAiRelay({ apiKey, relayUrl, model, brokenText, medium, genre, skillLevel }) {
+async function repairReportJsonWithOpenAiRelay({ apiKey, relayUrl, model, brokenText, medium, genre, skillLevel, signal }) {
   console.warn('[PhotoSense AI] JSON parse failed; attempting OpenAI relay JSON repair.');
 
   const repairResponse = await fetchWithTimeout(relayUrl, {
@@ -1424,7 +1438,7 @@ async function repairReportJsonWithOpenAiRelay({ apiKey, relayUrl, model, broken
       max_tokens: Math.min(OPENAI_RELAY_MAX_TOKENS, 2600),
       response_format: { type: 'json_object' },
     }),
-  }, OPENAI_RELAY_TIMEOUT_MS);
+  }, OPENAI_RELAY_TIMEOUT_MS, signal);
 
   console.log('[PhotoSense AI] OpenAI relay JSON repair response status:', repairResponse.status);
 
@@ -1446,7 +1460,11 @@ async function repairReportJsonWithOpenAiRelay({ apiKey, relayUrl, model, broken
   return extractJsonFromText(repairOutputText);
 }
 
-async function createOpenAiRelayReport({ imageDataUrl, medium, genre, skillLevel, fileName, workTitle, title, toneProfile }, modelDefinition = null) {
+async function createOpenAiRelayReport(
+  { imageDataUrl, medium, genre, skillLevel, fileName, workTitle, title, toneProfile },
+  modelDefinition = null,
+  { signal } = {},
+) {
   const apiKey = REPORT_RELAY_API_KEY;
   const relayBaseUrl = REPORT_RELAY_BASE_URL;
   const model = modelDefinition?.model || OPENAI_RELAY_MODEL;
@@ -1488,7 +1506,7 @@ async function createOpenAiRelayReport({ imageDataUrl, medium, genre, skillLevel
       max_tokens: Math.max(OPENAI_RELAY_MAX_TOKENS, 5_000),
       response_format: { type: 'json_object' },
     }),
-  }, OPENAI_RELAY_TIMEOUT_MS);
+  }, OPENAI_RELAY_TIMEOUT_MS, signal);
 
   console.log('[PhotoSense AI] OpenAI relay response status:', relayResponse.status);
 
@@ -1529,6 +1547,7 @@ async function createOpenAiRelayReport({ imageDataUrl, medium, genre, skillLevel
       medium,
       genre,
       skillLevel,
+      signal,
     });
   }
 
@@ -1656,31 +1675,70 @@ async function createReportWithSelectedRelay(context, requestedModelId) {
     throw error;
   }
 
-  let lastError;
-
-  for (const [index, candidate] of candidates.entries()) {
-    try {
-      const report = await createOpenAiRelayReport(context, candidate);
-      return {
-        report,
-        modelInfo: {
-          requestedId: requestedModelId,
-          actualId: candidate.id,
-          label: candidate.label,
-          model: candidate.model,
-          fallbackUsed: requestedModelId === 'auto' && index > 0,
-        },
-      };
-    } catch (error) {
-      lastError = error;
-      console.warn(`[PhotoSense AI] report model ${candidate.id} failed:`, error?.message || error);
-      if (requestedModelId !== 'auto') throw error;
-    }
+  if (requestedModelId !== 'auto') {
+    const candidate = candidates[0];
+    const report = await createOpenAiRelayReport(context, candidate);
+    return {
+      report,
+      modelInfo: {
+        requestedId: requestedModelId,
+        actualId: candidate.id,
+        label: candidate.label,
+        model: candidate.model,
+        fallbackUsed: false,
+      },
+    };
   }
 
-  const error = new Error('当前可用的报告模型均未能完成分析。');
-  error.statusCode = lastError?.statusCode === 504 ? 504 : 503;
-  throw error;
+  const controllers = candidates.map(() => new AbortController());
+  const errors = [];
+  let winner;
+
+  console.log('[PhotoSense AI] report model race starts:', candidates.map((candidate) => candidate.id).join(', '));
+
+  try {
+    try {
+      winner = await new Promise((resolve, reject) => {
+        let remaining = candidates.length;
+
+        candidates.forEach((candidate, index) => {
+          createOpenAiRelayReport(context, candidate, { signal: controllers[index].signal })
+            .then((report) => resolve({ candidate, index, report }))
+            .catch((error) => {
+              if (!error?.isAborted) {
+                errors.push({ candidate, error });
+                console.warn(`[PhotoSense AI] report model ${candidate.id} failed:`, error?.message || error);
+              }
+
+              remaining -= 1;
+              if (remaining === 0) reject(errors);
+            });
+        });
+      });
+    } catch (raceErrors) {
+      const error = new Error('当前可用的报告模型均未能完成分析。');
+      const failedModels = Array.isArray(raceErrors) ? raceErrors : errors;
+      error.statusCode = failedModels.some(({ error: candidateError }) => candidateError?.statusCode === 504) ? 504 : 503;
+      throw error;
+    }
+  } finally {
+    controllers.forEach((controller, index) => {
+      if (winner?.index !== index) controller.abort();
+    });
+  }
+
+  console.log('[PhotoSense AI] report model race winner:', winner.candidate.id);
+
+  return {
+    report: winner.report,
+    modelInfo: {
+      requestedId: requestedModelId,
+      actualId: winner.candidate.id,
+      label: winner.candidate.label,
+      model: winner.candidate.model,
+      fallbackUsed: false,
+    },
+  };
 }
 
 async function createPhotoReport({ imageDataUrl, medium = '数码摄影', genre = '街头摄影', skillLevel = DEFAULT_SKILL_LEVEL, fileName = '', workTitle = '', title = '' }) {

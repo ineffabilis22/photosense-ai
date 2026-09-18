@@ -244,9 +244,10 @@ test('OpenAI-compatible 完整链路传递新提示词并返回照片针对性�
       reason: '行人与街道环境共同构成现场关系。',
     });
     assert.match(data.report.reviewContext.genreFocus, /人像摄影/);
-    assert.equal(providerRequests.length, 3);
-    const capturedRequest: any = providerRequests[0];
-    const hobbyistRequest: any = providerRequests[1];
+    assert.equal(providerRequests.length, 12);
+    const getPrompt = (request: any) => request.messages?.[0]?.content?.find((item: any) => item.type === 'text')?.text ?? '';
+    const capturedRequest: any = providerRequests.find((request) => getPrompt(request).includes('"photoSpecific"'));
+    const hobbyistRequest: any = providerRequests.find((request) => getPrompt(request).includes('评价水平：爱好者水平'));
 
     const content = capturedRequest.messages?.[0]?.content;
     const prompt = content?.find((item: any) => item.type === 'text')?.text ?? '';
@@ -457,7 +458,7 @@ test('上游瞬时连接失败时只重试一次并成功返回报告', { timeou
     const data = await response.json();
     assert.equal(response.status, 200, `${stdout}\n${stderr}`);
     assert.equal(data.ok, true);
-    assert.equal(providerRequestCount, 1);
+    assert.ok(providerRequestCount >= 1 && providerRequestCount <= 4);
     assert.match(`${stdout}\n${stderr}`, /retrying once/);
   } finally {
     await stopChild(child);
@@ -535,8 +536,105 @@ test('自动分析优先使用 GPT，失败后切换到其他报告模型且不�
     const data = await response.json();
     assert.equal(response.status, 200, `${stdout}\n${stderr}`);
     assert.equal(data.ok, true);
-    assert.deepEqual(requestedModels, ['gpt-5.6-luna', 'claude-sonnet-5']);
+    assert.deepEqual([...requestedModels].sort(), [
+      'claude-sonnet-5',
+      'deepseek-v4.1-flash',
+      'gemini-3-flash',
+      'gpt-5.6-luna',
+    ].sort());
     assert.equal(data.report.reportModel, undefined);
+  } finally {
+    await stopChild(child);
+    await close(provider);
+  }
+});
+
+test('自动分析使用第一个有效报告并取消较慢的模型请求', { timeout: 15_000 }, async () => {
+  const raceAppPort = 18889;
+  const raceProviderPort = 18890;
+  const startedModels: string[] = [];
+  const provider = http.createServer((request, response) => {
+    let body = '';
+    request.setEncoding('utf8');
+    request.on('data', (chunk) => { body += chunk; });
+    request.on('end', () => {
+      const payload = JSON.parse(body);
+      const model = payload.model as string;
+      startedModels.push(model);
+      const delay = model === 'claude-sonnet-5'
+        ? 25
+        : model === 'deepseek-v4.1-flash'
+          ? 150
+          : model === 'gpt-5.6-luna'
+            ? 350
+            : 500;
+
+      setTimeout(() => {
+        response.writeHead(200, { 'Content-Type': 'application/json' });
+        response.end(JSON.stringify({
+          choices: [{ message: { content: JSON.stringify({
+            overall: `${model} 获胜`,
+            scoreBands: { 构图: '成立', 光线: '成立', 色彩: '成立', 叙事: '成立', 技术完成度: '成立' },
+          }) } }],
+        }));
+      }, delay);
+    });
+  });
+  await listen(provider, raceProviderPort);
+
+  let stdout = '';
+  let stderr = '';
+  const child = spawn(process.execPath, ['server/start.mjs'], {
+    cwd: process.cwd(),
+    env: {
+      ...process.env,
+      PORT: String(raceAppPort),
+      NODE_ENV: 'test',
+      ENABLE_HISTORY_EXPORT: 'false',
+      REPORT_RELAY_BASE_URL: `http://127.0.0.1:${raceProviderPort}/v1`,
+      REPORT_RELAY_API_KEY: 'test-key',
+      REPORT_MODEL_GPT: 'gpt-5.6-luna',
+      REPORT_MODEL_CLAUDE: 'claude-sonnet-5',
+      REPORT_MODEL_DEEPSEEK: 'deepseek-v4.1-flash',
+      REPORT_MODEL_GEMINI: 'gemini-3-flash',
+      IMAGE_RELAY_BASE_URL: '',
+      IMAGE_RELAY_API_KEY: '',
+      GEMINI_RELAY_BASE_URL: '',
+      GEMINI_RELAY_API_KEY: '',
+      ANTHROPIC_RELAY_BASE_URL: '',
+      ANTHROPIC_RELAY_API_KEY: '',
+      GEMINI_API_KEY: '',
+    },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  child.stdout?.on('data', (chunk) => { stdout += String(chunk); });
+  child.stderr?.on('data', (chunk) => { stderr += String(chunk); });
+
+  try {
+    await waitForHealth(() => `${stdout}\n${stderr}`, raceAppPort);
+    const response = await fetch(`http://127.0.0.1:${raceAppPort}/api/analyze-photo`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        imageDataUrl,
+        fileName: 'race.png',
+        medium: '数码摄影',
+        genre: '街头摄影',
+        skillLevel: '爱好者水平',
+      }),
+    });
+    const data = await response.json();
+
+    assert.equal(response.status, 200, `${stdout}\n${stderr}`);
+    assert.equal(data.ok, true);
+    assert.match(data.report.overall, /claude-sonnet-5 获胜/);
+    assert.deepEqual([...startedModels].sort(), [
+      'claude-sonnet-5',
+      'deepseek-v4.1-flash',
+      'gemini-3-flash',
+      'gpt-5.6-luna',
+    ].sort());
+    assert.match(`${stdout}\n${stderr}`, /report model race winner: claude/);
   } finally {
     await stopChild(child);
     await close(provider);
